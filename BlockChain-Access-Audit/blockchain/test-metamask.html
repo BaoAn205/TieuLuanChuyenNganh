@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Blockchain Access & Audit Test</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.15.0/dist/ethers.umd.min.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+
+        button {
+            display: block;
+            margin: 12px 0;
+            padding: 12px 18px;
+            cursor: pointer;
+        }
+
+        #status {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f1f1f1;
+            border: 1px solid #ccc;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        hr {
+            margin: 30px 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Blockchain Access & Audit Test</h1>
+
+    <p>
+        Contract:
+        <br>
+        <code>0x5FbDB2315678afecb367f032d93F642f64180aa3</code>
+    </p>
+
+    <!-- ==================== ROLE TEST ==================== -->
+
+    <button onclick="connectWallet()">
+        1. Kết nối MetaMask
+    </button>
+
+    <button onclick="checkMyRole()">
+        2. Kiểm tra Role Account hiện tại
+    </button>
+
+    <button onclick="grantCustomer()">
+        3. Cấp CUSTOMER cho Account #1
+    </button>
+
+    <button onclick="checkAccount1Role()">
+        4. Kiểm tra Role Account #1
+    </button>
+
+
+    <hr>
+
+
+    <!-- ==================== AUDIT TEST ==================== -->
+
+    <h2>Audit Test</h2>
+
+    <button onclick="recordAudit()">
+        5. ADMIN ghi Audit Event
+    </button>
+
+    <button onclick="readAudit()">
+        6. Đọc Audit Event
+    </button>
+
+    <button onclick="verifyAudit()">
+        7. CUSTOMER verify Audit
+    </button>
+
+    <button onclick="testCalculateAuditHash()">
+    Test SHA-256
+    </button>
+
+
+    <div id="status">
+        Chưa kết nối MetaMask.
+    </div>
+
+
+    <script>
+
+        // =========================================================
+        // CONFIG
+        // =========================================================
+
+        const CONTRACT_ADDRESS =
+        "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+
+        const HARDHAT_CHAIN_ID =
+            "0x7a69";
+
+
+        // =========================================================
+        // CONTRACT ABI
+        // =========================================================
+
+        const CONTRACT_ABI = [
+        "function grantRole(address account, uint8 role, bytes32 userIdHash) external",
+        "function getRole(address account) external view returns (uint8)",
+
+        "function recordAudit(uint256 eventId, bytes32 userIdHash, string action, string resource, uint256 timestamp, string result, bytes32 dataHash) external",
+
+        "function getAudit(uint256 eventId) external view returns (uint256, bytes32, string, string, uint256, string, bytes32, address)",
+
+        "function verifyAudit(uint256 eventId, bytes32 expectedDataHash) external view returns (bool)",
+
+        "function getMyAudit(uint256 eventId) external view returns (uint256, bytes32, string, string, uint256, string, bytes32, address)"
+        ];
+
+
+        // =========================================================
+        // ACCOUNT #1
+        // =========================================================
+
+        const ACCOUNT_1 =
+            "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
+
+
+        // =========================================================
+        // GLOBAL VARIABLES
+        // =========================================================
+
+        let provider = null;
+        let signer = null;
+        let contract = null;
+
+
+        // =========================================================
+        // STATUS
+        // =========================================================
+
+        function status(message) {
+
+            document.getElementById("status").innerText =
+                message;
+
+        }
+
+
+        // =========================================================
+        // CONNECT METAMASK
+        // =========================================================
+
+        async function connectWallet() {
+
+            try {
+
+                if (!window.ethereum) {
+
+                    status(
+                        "Không tìm thấy MetaMask."
+                    );
+
+                    return;
+                }
+
+
+                const chainId =
+                    await window.ethereum.request({
+                        method: "eth_chainId"
+                    });
+
+
+                if (chainId !== HARDHAT_CHAIN_ID) {
+
+                    status(
+                        "Sai network.\n\n" +
+                        "Hãy chuyển MetaMask sang:\n" +
+                        "Hardhat Local\n\n" +
+                        "Chain ID: 31337"
+                    );
+
+                    return;
+                }
+
+
+                await window.ethereum.request({
+                    method: "eth_requestAccounts"
+                });
+
+
+                provider =
+                    new ethers.BrowserProvider(
+                        window.ethereum
+                    );
+
+
+                signer =
+                    await provider.getSigner();
+
+
+                const address =
+                    await signer.getAddress();
+
+
+                contract =
+                    new ethers.Contract(
+                        CONTRACT_ADDRESS,
+                        CONTRACT_ABI,
+                        signer
+                    );
+
+
+                status(
+                    "Kết nối thành công!\n\n" +
+                    "Account:\n" +
+                    address +
+                    "\n\n" +
+                    "Network: Hardhat Local\n" +
+                    "Chain ID: 31337"
+                );
+
+            } catch (error) {
+
+                console.error(error);
+
+                status(
+                    "Kết nối thất bại:\n\n" +
+                    (
+                        error.reason ||
+                        error.shortMessage ||
+                        error.message
+                    )
+                );
+
+            }
+
+        }
+
+
+        // =========================================================
+        // CHECK CURRENT ACCOUNT ROLE
+        // =========================================================
+
+        async function checkMyRole() {
+
+            try {
+
+                if (!contract) {
+                    await connectWallet();
+                }
+
+
+                const address =
+                    await signer.getAddress();
+
+
+                const role =
+                    await contract.getRole(address);
+
+
+                const roleNames = [
+                    "NONE",
+                    "ADMIN",
+                    "STAFF",
+                    "AUDITOR",
+                    "CUSTOMER"
+                ];
+
+
+                status(
+                    "Account hiện tại:\n\n" +
+                    address +
+                    "\n\n" +
+                    "Role:\n" +
+                    roleNames[Number(role)]
+                );
+
+            } catch (error) {
+
+                console.error(error);
+
+                status(
+                    "Không thể kiểm tra Role:\n\n" +
+                    (
+                        error.reason ||
+                        error.shortMessage ||
+                        error.message
+                    )
+                );
+
+            }
+
+        }
+
+
+        // =========================================================
+        // GRANT CUSTOMER
+        // =========================================================
+
+        async function grantCustomer() {
+
+            try {
+
+                if (!contract) {
+                    await connectWallet();
+                }
+
+
+                const userIdHash =
+                    ethers.id("user001");
+
+
+                const role =
+                    4;
+
+
+                status(
+                    "Đang cấp CUSTOMER cho Account #1...\n\n" +
+                    ACCOUNT_1 +
+                    "\n\n" +
+                    "userIdHash:\n" +
+                    userIdHash +
+                    "\n\n" +
+                    "Đang chờ MetaMask..."
+                );
+
+
+                const tx =
+                    await contract.grantRole(
+                        ACCOUNT_1,
+                        role,
+                        userIdHash
+                    );
+
+
+                status(
+                    "Transaction đã được gửi.\n\n" +
+                    "TX Hash:\n" +
+                    tx.hash +
+                    "\n\n" +
+                    "Đang chờ xác nhận..."
+                );
+
+
+                await tx.wait();
+
+
+                status(
+                    "SUCCESS!\n\n" +
+                    "Account #1 đã được cấp CUSTOMER.\n\n" +
+                    "Account:\n" +
+                    ACCOUNT_1 +
+                    "\n\n" +
+                    "TX Hash:\n" +
+                    tx.hash
+                );
+
+            } catch (error) {
+
+                console.error(error);
+
+                status(
+                    "Cấp Role thất bại:\n\n" +
+                    (
+                        error.reason ||
+                        error.shortMessage ||
+                        error.message
+                    )
+                );
+
+            }
+
+        }
+
+
+        // =========================================================
+        // CHECK ACCOUNT #1 ROLE
+        // =========================================================
+
+        async function checkAccount1Role() {
+
+            try {
+
+                if (!contract) {
+                    await connectWallet();
+                }
+
+
+                const role =
+                    await contract.getRole(
+                        ACCOUNT_1
+                    );
+
+
+                const roleNames = [
+                    "NONE",
+                    "ADMIN",
+                    "STAFF",
+                    "AUDITOR",
+                    "CUSTOMER"
+                ];
+
+
+                status(
+                    "Account #1:\n\n" +
+                    ACCOUNT_1 +
+                    "\n\n" +
+                    "Role:\n" +
+                    roleNames[Number(role)]
+                );
+
+            } catch (error) {
+
+                console.error(error);
+
+                status(
+                    "Không thể kiểm tra Role Account #1:\n\n" +
+                    (
+                        error.reason ||
+                        error.shortMessage ||
+                        error.message
+                    )
+                );
+
+            }
+
+        }
+
+
+        // =========================================================
+        // RECORD AUDIT
+        // =========================================================
+
+        async function recordAudit() {
+
+            try {
+
+                if (!contract) {
+                    await connectWallet();
+                }
+
+
+                const currentAddress =
+                    await signer.getAddress();
+
+
+                const eventId =
+                    2;
+
+
+                const userIdHash =
+                    ethers.id("user001");
+
+
+                const action =
+                    "LOGIN";
+
+
+                const resource =
+                    "/api/auth/login";
+
+
+                const timestamp =
+                    Math.floor(
+                        Date.now() / 1000
+                    );
+
+
+                const result =
+                    "SUCCESS";
+
+
+                const canonicalData =
+                    eventId +
+                    "|" +
+                    userIdHash +
+                    "|" +
+                    action +
+                    "|" +
+                    resource +
+                    "|" +
+                    timestamp +
+                    "|" +
+                    result;
+
+                const dataHash = ethers.sha256(
+                    ethers.toUtf8Bytes(canonicalData)
+                );
+
+
+                status(
+                    "Đang ghi Audit Event...\n\n" +
+
+                    "Actor:\n" +
+                    currentAddress +
+
+                    "\n\n" +
+
+                    "Event ID:\n" +
+                    eventId +
+
+                    "\n\n" +
+
+                    "Action:\n" +
+                    action +
+
+                    "\n\n" +
+
+                    "Resource:\n" +
+                    resource +
+
+                    "\n\n" +
+
+                    "Result:\n" +
+                    result +
+
+                    "\n\n" +
+
+                    "Data Hash:\n" +
+                    dataHash +
+
+                    "\n\n" +
+
+                    "Đang chờ MetaMask..."
+                );
+
+
+                const tx =
+                    await contract.recordAudit(
+
+                        eventId,
+
+                        userIdHash,
+
+                        action,
+
+                        resource,
+
+                        timestamp,
+
+                        result,
+
+                        dataHash
+
+                    );
+
+
+                status(
+                    "Transaction đã được gửi.\n\n" +
+
+                    "TX Hash:\n" +
+                    tx.hash +
+
+                    "\n\n" +
+
+                    "Đang chờ blockchain xác nhận..."
+                );
+
+
+                await tx.wait();
+
+
+                status(
+                    "SUCCESS!\n\n" +
+
+                    "Audit Event đã được ghi lên blockchain.\n\n" +
+
+                    "Event ID:\n" +
+                    eventId +
+
+                    "\n\n" +
+
+                    "Action:\n" +
+                    action +
+
+                    "\n\n" +
+
+                    "Resource:\n" +
+                    resource +
+
+                    "\n\n" +
+
+                    "Result:\n" +
+                    result +
+
+                    "\n\n" +
+
+                    "Data Hash:\n" +
+                    dataHash +
+
+                    "\n\n" +
+
+                    "TX Hash:\n" +
+                    tx.hash
+                );
+
+            } catch (error) {
+
+                console.error(error);
+
+                status(
+                    "Ghi Audit thất bại:\n\n" +
+
+                    (
+                        error.reason ||
+                        error.shortMessage ||
+                        error.message
+                    )
+                );
+
+            }
+
+        }
+
+
+        // =========================================================
+        // READ AUDIT
+        // =========================================================
+
+        async function readAudit() {
+
+            try {
+
+                if (!contract) {
+                    await connectWallet();
+                }
+
+                const eventId = 1;
+
+                status(
+                    "Đang đọc Audit Event...\n\n" +
+                    "Contract:\n" +
+                    CONTRACT_ADDRESS +
+                    "\n\n" +
+                    "Event ID:\n" +
+                    eventId
+                );
+
+                const audit = await contract.getAudit(eventId);
+
+                console.log("AUDIT RESULT:", audit);
+
+                status(
+
+                    "Audit Event #1\n\n" +
+
+                    "Event ID:\n" +
+                    audit[0].toString() +
+
+                    "\n\n" +
+
+                    "User ID Hash:\n" +
+                    audit[1] +
+
+                    "\n\n" +
+
+                    "Action:\n" +
+                    audit[2] +
+
+                    "\n\n" +
+
+                    "Resource:\n" +
+                    audit[3] +
+
+                    "\n\n" +
+
+                    "Timestamp:\n" +
+                    audit[4].toString() +
+
+                    "\n\n" +
+
+                    "Result:\n" +
+                    audit[5] +
+
+                    "\n\n" +
+
+                    "Data Hash:\n" +
+                    audit[6] +
+
+                    "\n\n" +
+
+                    "Actor:\n" +
+                    audit[7]
+
+                );
+
+            } catch (error) {
+
+                console.error("READ AUDIT ERROR:", error);
+
+                status(
+                    "Đọc Audit thất bại:\n\n" +
+                    (
+                        error.reason ||
+                        error.shortMessage ||
+                        error.message
+                    )
+                );
+
+            }
+
+        }
+
+
+        // =========================================================
+        // VERIFY AUDIT
+        // =========================================================
+
+        async function verifyAudit() {
+
+        try {
+
+            if (!contract) {
+                await connectWallet();
+            }
+
+            const eventId = 1;
+
+            // CUSTOMER chỉ được đọc Audit của chính mình
+            const audit =
+                await contract.getMyAudit(eventId);
+
+            // Data Hash đang lưu trên blockchain
+            const storedDataHash =
+                audit[6];
+
+            // Xác minh Data Hash
+            const result =
+                await contract.verifyAudit(
+                    eventId,
+                    storedDataHash
+                );
+
+            status(
+
+                "AUDIT VERIFICATION\n\n" +
+
+                "Event ID:\n" +
+                eventId +
+
+                "\n\n" +
+
+                "User ID Hash:\n" +
+                audit[1] +
+
+                "\n\n" +
+
+                "Action:\n" +
+                audit[2] +
+
+                "\n\n" +
+
+                "Resource:\n" +
+                audit[3] +
+
+                "\n\n" +
+
+                "Stored Data Hash:\n" +
+                storedDataHash +
+
+                "\n\n" +
+
+                "Verification Result:\n" +
+                result +
+
+                "\n\n" +
+
+                (
+                    result
+                        ? "✓ INTEGRITY VERIFIED"
+                        : "✗ INTEGRITY FAILED"
+                )
+
+            );
+
+        } catch (error) {
+
+            console.error(error);
+
+            status(
+                "Verify thất bại:\n\n" +
+                (
+                    error.reason ||
+                    error.shortMessage ||
+                    error.message
+                )
+            );
+
+        }
+    }
+// =========================================================
+// SHA-256 AUDIT HASH TEST
+// =========================================================
+
+async function calculateAuditHash(
+    eventId,
+    userIdHash,
+    action,
+    resource,
+    timestamp,
+    result
+) {
+    // Canonical format:
+    // eventId|userIdHash|action|resource|timestamp|result
+
+    const canonicalData =
+        eventId +
+        "|" +
+        userIdHash +
+        "|" +
+        action +
+        "|" +
+        resource +
+        "|" +
+        timestamp +
+        "|" +
+        result;
+
+    console.log("Canonical Data:");
+    console.log(canonicalData);
+
+    const encoder = new TextEncoder();
+    const data = encoder.encode(canonicalData);
+
+    const hashBuffer = await crypto.subtle.digest(
+        "SHA-256",
+        data
+    );
+
+    const hashArray =
+        Array.from(new Uint8Array(hashBuffer));
+
+    const hashHex =
+        hashArray
+            .map(
+                byte =>
+                    byte.toString(16).padStart(2, "0")
+            )
+            .join("");
+
+    return "0x" + hashHex;
+}
+
+
+// =========================================================
+// TEST SHA-256 USING BLOCKCHAIN AUDIT DATA
+// =========================================================
+
+async function testCalculateAuditHash() {
+
+    try {
+
+        if (!contract) {
+            await connectWallet();
+        }
+
+        const eventId = 2;
+
+        status(
+            "Đang đọc Audit Event #1 từ Blockchain..."
+        );
+
+        // Read Audit Event directly from Blockchain
+        const audit =
+            await contract.getAudit(eventId);
+
+        console.log(
+            "Audit Event:",
+            audit
+        );
+
+        // Extract fields
+        const auditEventId =
+            Number(audit[0]);
+
+        const userIdHash =
+            audit[1];
+
+        const action =
+            audit[2];
+
+        const resource =
+            audit[3];
+
+        const timestamp =
+            Number(audit[4]);
+
+        const result =
+            audit[5];
+
+        const storedDataHash =
+            audit[6];
+
+
+        // Calculate SHA-256 again
+        const calculatedHash =
+            await calculateAuditHash(
+                auditEventId,
+                userIdHash,
+                action,
+                resource,
+                timestamp,
+                result
+            );
+
+
+        // Show result
+        const canonicalData =
+            auditEventId +
+            "|" +
+            userIdHash +
+            "|" +
+            action +
+            "|" +
+            resource +
+            "|" +
+            timestamp +
+            "|" +
+            result;
+
+
+        const isMatch =
+            calculatedHash.toLowerCase() ===
+            storedDataHash.toLowerCase();
+
+
+        console.log(
+            "Canonical Data:",
+            canonicalData
+        );
+
+        console.log(
+            "Stored Data Hash:",
+            storedDataHash
+        );
+
+        console.log(
+            "Calculated Data Hash:",
+            calculatedHash
+        );
+
+        console.log(
+            "Hash Match:",
+            isMatch
+        );
+
+
+        status(
+            "SHA-256 TEST\n\n" +
+
+            "Event ID:\n" +
+            auditEventId +
+
+            "\n\n" +
+
+            "Canonical Data:\n" +
+            canonicalData +
+
+            "\n\n" +
+
+            "Stored Data Hash:\n" +
+            storedDataHash +
+
+            "\n\n" +
+
+            "Calculated Data Hash:\n" +
+            calculatedHash +
+
+            "\n\n" +
+
+            "Hash Match:\n" +
+            isMatch +
+
+            "\n\n" +
+
+            (
+                isMatch
+                    ? "✓ HASH MATCH"
+                    : "✗ HASH MISMATCH"
+            )
+        );
+
+    } catch (error) {
+
+        console.error(
+            "SHA-256 TEST ERROR:",
+            error
+        );
+
+        status(
+            "SHA-256 TEST FAILED:\n\n" +
+            (
+                error.reason ||
+                error.shortMessage ||
+                error.message
+            )
+        );
+    }
+}
+
+        // =========================================================
+        // METAMASK EVENTS
+        // =========================================================
+
+        if (window.ethereum) {
+
+            window.ethereum.on(
+                "accountsChanged",
+                function () {
+
+                    provider = null;
+                    signer = null;
+                    contract = null;
+
+                    status(
+                        "Account MetaMask đã thay đổi.\n\n" +
+                        "Hãy bấm:\n" +
+                        "1. Kết nối MetaMask"
+                    );
+
+                }
+            );
+
+
+            window.ethereum.on(
+                "chainChanged",
+                function () {
+
+                    provider = null;
+                    signer = null;
+                    contract = null;
+
+                    status(
+                        "Network đã thay đổi.\n\n" +
+                        "Hãy chuyển về Hardhat Local."
+                    );
+
+                }
+            );
+
+        }
+
+    </script>
+
+</body>
+</html>
