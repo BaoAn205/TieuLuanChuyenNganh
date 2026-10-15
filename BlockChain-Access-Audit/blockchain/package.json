@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "node:ganache": "ganache --server.host 127.0.0.1 --server.port 8546 --chain.chainId 31337 --wallet.mnemonic \"test test test test test test test test test test test junk\"",
+    "deploy:local": "hardhat run scripts/deploy.ts --network ganache"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +24,7 @@
     "chai": "^6.2.2",
     "ethers": "^6.17.0",
     "forge-std": "github:foundry-rs/forge-std#v1.16.2",
+    "ganache": "^7.9.2",
     "hardhat": "^3.17.0",
     "mocha": "^11.8.0",
     "typescript": "~6.0.3"
