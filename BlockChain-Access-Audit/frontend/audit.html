@@ -9,8 +9,29 @@
 <body>
 <main class="shell">
   <header class="topbar"><div class="brand">Audit Ledger <small>Immutable evidence workspace</small></div><a href="index.html">← Banking</a></header>
-  <section class="hero"><div class="kicker">Audit / integrity</div><h1>Lịch sử truy cập, nhìn thấy được.</h1><p class="lead">Mỗi dòng là một Audit Event. Hash hiện tại được tính lại và đối chiếu với bằng chứng trên blockchain.</p></section>
+  <section class="hero"><div class="kicker">Audit / integrity</div><h1>Quản Lý Truy Cập</h1><p class="lead"></p></section>
   <section class="panel">
+    <div id="auditSessionPanel" class="audit-session-bar" hidden>
+      <div class="session-info">
+        <span class="badge soft">Đang đăng nhập:</span>
+        <strong id="auditCurrentUserName">Auditor</strong>
+        <span id="auditCurrentUserRole" class="badge">AUDITOR</span>
+        <code id="auditCurrentWallet" class="wallet-tag">0x...</code>
+      </div>
+      <button id="auditLogoutButton" class="ghost-button" type="button">Đăng xuất</button>
+    </div>
+    <div id="customerBlockedNotice" class="restricted-notice" hidden>
+      <div class="notice-icon">⛔</div>
+      <div class="notice-body">
+        <h3>Khu vực nghiệp vụ giới hạn</h3>
+        <p>Cổng Kiểm toán (Audit Ledger) là không gian nghiệp vụ nội bộ dành riêng cho <strong>Kiểm toán viên (AUDITOR)</strong> và <strong>Quản trị viên (ADMIN)</strong>.</p>
+        <p>Tài khoản khách hàng không có quyền truy cập trang này. Bạn có thể quay lại giao diện ngân hàng để xem lịch sử giao dịch cá nhân hoặc đăng xuất để chuyển sang tài khoản Auditor.</p>
+        <div class="notice-actions">
+          <a href="index.html" class="primary" style="display:inline-block; text-decoration:none; color:#ffffff !important;">Quay lại Cổng Ngân hàng</a>
+          <button id="customerLogoutBtn" class="secondary" type="button">Đăng xuất</button>
+        </div>
+      </div>
+    </div>
     <form id="auditLoginForm" class="form-grid audit-login">
       <label>Audit User ID<input id="auditUserId" value="auditor-001" required /></label>
       <label>Password<input id="auditPassword" type="password" autocomplete="current-password" required /></label>
@@ -27,10 +48,12 @@
       <label>Chain status<select id="filterChain"><option value="">All</option><option value="recorded">On-chain</option><option value="offchain">Off-chain only</option></select></label>
       <div class="filter-actions"><button class="primary" type="submit">Apply filters</button><button id="clearFilters" class="secondary" type="button">Clear</button></div>
     </form>
-    <div class="user-strip"><strong><span id="eventCount">0</span> Audit Events</strong><button id="refresh" class="secondary">Làm mới dữ liệu</button></div>
-    <div id="status" class="status" aria-live="polite">Đăng nhập Auditor để xem và xác minh logs.</div>
-    <div class="table-wrap">
-      <table><thead><tr><th>Event</th><th>User</th><th>Role</th><th>Action</th><th>Resource</th><th>Result</th><th>Timestamp</th><th>Chain mapping</th><th>Integrity</th><th>Details</th></tr></thead><tbody id="events"></tbody></table>
+    <div id="auditWorkspace">
+      <div class="user-strip"><strong><span id="eventCount">0</span> Audit Events</strong><button id="refresh" class="secondary">Làm mới dữ liệu</button></div>
+      <div id="status" class="status" aria-live="polite">Đăng nhập Auditor để xem và xác minh logs.</div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Event</th><th>User</th><th>Role</th><th>Action</th><th>Resource</th><th>Result</th><th>Timestamp</th><th>Chain mapping</th><th>Integrity</th><th>Details</th></tr></thead><tbody id="events"></tbody></table>
+      </div>
     </div>
   </section>
 </main>

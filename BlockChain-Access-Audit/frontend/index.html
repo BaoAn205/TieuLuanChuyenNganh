@@ -22,7 +22,6 @@
         <a class="nav-item" href="#accounts">Accounts</a>
         <a class="nav-item" href="#transfer">Transfers</a>
         <a class="nav-item" href="#activity">Activity</a>
-        <a class="nav-item" href="audit.html">Audit Ledger</a>
       </nav>
       <nav id="adminNav" class="nav" hidden>
         <a class="nav-item active" href="#adminPanel">Audit operations</a>
@@ -183,14 +182,35 @@
               <h3>My access history</h3>
               <p><span id="customerAuditCount">0</span> events linked to this account</p>
             </div>
-            <button id="refreshCustomerAudit" class="ghost-button" type="button">Refresh</button>
+            <div class="panel-actions">
+              <button id="refreshCustomerAudit" class="ghost-button btn-sm" type="button">Refresh</button>
+              <button id="toggleCustomerAudit" class="ghost-button btn-sm" type="button" aria-expanded="true">Thu gọn ▲</button>
+            </div>
           </div>
-          <div id="customerAuditStatus" class="status" aria-live="polite"></div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Event</th><th>Action</th><th>Resource</th><th>Time</th><th>Integrity</th><th>Details</th></tr></thead>
-              <tbody id="customerAuditEvents"><tr><td colspan="6">Sign in to view your audit history.</td></tr></tbody>
-            </table>
+          <div id="customerAuditContent">
+            <div id="customerAuditStatus" class="status" aria-live="polite"></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Event</th><th>Action</th><th>Resource</th><th>Time</th><th>Integrity</th><th>Details</th></tr></thead>
+                <tbody id="customerAuditEvents"><tr><td colspan="6">Sign in to view your audit history.</td></tr></tbody>
+              </table>
+            </div>
+            <div class="audit-pagination">
+              <div class="pagination-info">
+                <span>Hiển thị</span>
+                <select id="customerPageSize" class="page-size-select" aria-label="Số dòng mỗi trang">
+                  <option value="5" selected>5 dòng</option>
+                  <option value="10">10 dòng</option>
+                  <option value="20">20 dòng</option>
+                </select>
+                <span id="customerPaginationSummary"></span>
+              </div>
+              <div class="pagination-buttons">
+                <button id="prevCustomerPage" class="ghost-button btn-sm" type="button" disabled>❮ Trước</button>
+                <span id="customerCurrentPageDisplay" class="page-current">Trang 1 / 1</span>
+                <button id="nextCustomerPage" class="ghost-button btn-sm" type="button" disabled>Sau ❯</button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
