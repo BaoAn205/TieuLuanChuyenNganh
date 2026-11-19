@@ -7,10 +7,14 @@ export default defineConfig({
     profiles: {
       default: {
         version: "0.8.34",
+        settings: {
+          evmVersion: "shanghai",
+        },
       },
       production: {
         version: "0.8.34",
         settings: {
+          evmVersion: "shanghai",
           optimizer: {
             enabled: true,
             runs: 200,
@@ -27,6 +31,16 @@ export default defineConfig({
     hardhatOp: {
       type: "edr-simulated",
       chainType: "op",
+    },
+    localhost: {
+      type: "http",
+      chainType: "l1",
+      url: "http://127.0.0.1:8545",
+    },
+    ganache: {
+      type: "http",
+      chainType: "l1",
+      url: "http://127.0.0.1:8546",
     },
     sepolia: {
       type: "http",
