@@ -3,6 +3,9 @@ const $ = (selector) => document.querySelector(selector);
 let currentUser;
 let recipient;
 let transferPending = false;
+let customerAuditEventsList = [];
+let customerAuditCurrentPage = 1;
+let customerAuditPageSize = 5;
 
 function showWalletStatus(message, connected = false) {
   $('#walletStatus').textContent = message;
@@ -124,23 +127,50 @@ async function loadAdminLogs() {
   }
 }
 
-async function loadCustomerAudit() {
+function renderCustomerAuditTable() {
   const body = $('#customerAuditEvents');
+  const total = customerAuditEventsList.length;
+  $('#customerAuditCount').textContent = total;
+
+  if (total === 0) {
+    body.innerHTML = '<tr><td colspan="6">No audit events yet.</td></tr>';
+    $('#customerPaginationSummary').textContent = '0 sự kiện';
+    $('#customerCurrentPageDisplay').textContent = 'Trang 1 / 1';
+    $('#prevCustomerPage').disabled = true;
+    $('#nextCustomerPage').disabled = true;
+    return;
+  }
+
+  const totalPages = Math.ceil(total / customerAuditPageSize) || 1;
+  if (customerAuditCurrentPage > totalPages) customerAuditCurrentPage = totalPages;
+  if (customerAuditCurrentPage < 1) customerAuditCurrentPage = 1;
+
+  const startIdx = (customerAuditCurrentPage - 1) * customerAuditPageSize;
+  const endIdx = Math.min(startIdx + customerAuditPageSize, total);
+  const pageItems = customerAuditEventsList.slice(startIdx, endIdx);
+
+  body.innerHTML = pageItems.map((event) => `
+    <tr>
+      <td>#${event.eventId}</td>
+      <td>${escapeHtml(event.action)}</td>
+      <td>${escapeHtml(event.resource)}</td>
+      <td>${escapeHtml(event.timestamp)}</td>
+      <td>${event.blockchainTxHash ? 'On-chain' : 'Off-chain'}</td>
+      <td><button class="verify-button" type="button" data-detail-id="${event.eventId}">Details</button></td>
+    </tr>
+  `).join('');
+
+  $('#customerPaginationSummary').textContent = `${startIdx + 1} - ${endIdx} trong ${total}`;
+  $('#customerCurrentPageDisplay').textContent = `Trang ${customerAuditCurrentPage} / ${totalPages}`;
+  $('#prevCustomerPage').disabled = (customerAuditCurrentPage <= 1);
+  $('#nextCustomerPage').disabled = (customerAuditCurrentPage >= totalPages);
+}
+
+async function loadCustomerAudit() {
   try {
     const result = await callApi('/api/audit/my-logs');
-    $('#customerAuditCount').textContent = result.count;
-    body.innerHTML = result.events.length
-      ? result.events.map((event) => `
-          <tr>
-            <td>#${event.eventId}</td>
-            <td>${escapeHtml(event.action)}</td>
-            <td>${escapeHtml(event.resource)}</td>
-            <td>${escapeHtml(event.timestamp)}</td>
-            <td>${event.blockchainTxHash ? 'On-chain' : 'Off-chain'}</td>
-            <td><button class="verify-button" type="button" data-detail-id="${event.eventId}">Details</button></td>
-          </tr>
-        `).join('')
-      : '<tr><td colspan="6">No audit events yet.</td></tr>';
+    customerAuditEventsList = result.events || [];
+    renderCustomerAuditTable();
     $('#customerAuditStatus').textContent = 'Only events belonging to your user are shown.';
     $('#customerAuditStatus').className = 'status success';
   } catch (error) {
@@ -353,6 +383,36 @@ $('#confirmTransfer').addEventListener('click', async () => {
 
 $('#refreshAdminLogs').addEventListener('click', loadAdminLogs);
 $('#refreshCustomerAudit').addEventListener('click', loadCustomerAudit);
+
+$('#toggleCustomerAudit')?.addEventListener('click', () => {
+  const content = $('#customerAuditContent');
+  const btn = $('#toggleCustomerAudit');
+  const isCollapsed = content.hidden;
+  content.hidden = !isCollapsed;
+  btn.textContent = isCollapsed ? 'Thu gọn ▲' : 'Mở rộng ▼';
+  btn.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
+});
+
+$('#customerPageSize')?.addEventListener('change', (e) => {
+  customerAuditPageSize = Number(e.target.value) || 5;
+  customerAuditCurrentPage = 1;
+  renderCustomerAuditTable();
+});
+
+$('#prevCustomerPage')?.addEventListener('click', () => {
+  if (customerAuditCurrentPage > 1) {
+    customerAuditCurrentPage--;
+    renderCustomerAuditTable();
+  }
+});
+
+$('#nextCustomerPage')?.addEventListener('click', () => {
+  const totalPages = Math.ceil(customerAuditEventsList.length / customerAuditPageSize) || 1;
+  if (customerAuditCurrentPage < totalPages) {
+    customerAuditCurrentPage++;
+    renderCustomerAuditTable();
+  }
+});
 $('#quickTransfer').addEventListener('click', () => {
   $('#transfer').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('#toAccount').focus({ preventScroll: true });

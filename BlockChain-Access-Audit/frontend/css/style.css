@@ -603,6 +603,63 @@ th {
 .hero h1 { margin: 8px 0; font-size: 2rem; line-height: 1.15; }
 .hero .lead { max-width: 720px; margin: 0; color: var(--muted); line-height: 1.55; }
 .shell > .panel { padding: 22px; border-radius: 0 0 18px 18px; }
+.restricted-notice {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 24px;
+  margin: 10px 0 24px;
+  border: 1px solid #f2c0ba;
+  background: #fdf5f4;
+  border-radius: 16px;
+  color: #7a2723;
+}
+.notice-icon {
+  font-size: 2.2rem;
+  line-height: 1;
+}
+.notice-body h3 {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+  color: #9c2b25;
+}
+.notice-body p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+  color: #5a2220;
+}
+.notice-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  align-items: center;
+}
+.restricted-notice .notice-actions a.primary {
+  color: #ffffff !important;
+}
+.audit-session-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-alt);
+}
+.session-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.wallet-tag {
+  font-size: 0.82rem;
+  background: rgba(13,92,75,0.06);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
 .audit-login { grid-template-columns: 1fr 1fr auto auto; align-items: end; margin-bottom: 20px; }
 .audit-login button { width: auto; }
 .audit-filters {
@@ -619,6 +676,52 @@ th {
 .filter-actions { display: flex; gap: 8px; grid-column: span 2; }
 .filter-actions button { flex: 1; }
 .customer-audit-panel { padding: 22px; }
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-sm {
+  padding: 7px 12px !important;
+  font-size: 0.8rem !important;
+  border-radius: 9px !important;
+}
+.audit-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.page-size-select {
+  width: auto !important;
+  padding: 5px 10px !important;
+  border-radius: 8px !important;
+  font-size: 0.82rem !important;
+  border: 1px solid var(--border) !important;
+  background: white !important;
+  cursor: pointer;
+}
+.pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.page-current {
+  font-weight: 700;
+  color: var(--text);
+  padding: 0 4px;
+}
 .audit-detail-dialog { max-height: min(82vh, 760px); overflow: auto; }
 #auditDetailFields dd, #eventDetailFields dd { max-width: 65%; overflow-wrap: anywhere; }
 #events td small { display: block; margin-top: 4px; color: var(--muted); }

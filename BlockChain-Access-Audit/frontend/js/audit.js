@@ -68,12 +68,19 @@ function renderEvents(events) {
 	`).join('') : '<tr><td colspan="10">Không có Audit Event phù hợp.</td></tr>';
 }
 
-async function loadEvents() {
+async function loadEvents(userRole) {
 	try {
-		const query = activeFilters();
-		const data = await callApi(`/api/audit/logs${query ? `?${query}` : ''}`);
+		const role = userRole || $('#auditCurrentUserRole').textContent.trim();
+		let data;
+		if (role === 'CUSTOMER') {
+			data = await callApi('/api/audit/my-logs');
+			status(`Đang hiển thị ${data.count ?? data.events.length} sự kiện kiểm toán của riêng bạn (Customer). Bạn có thể bấm Verify để kiểm tra tính toàn vẹn.`, 'success');
+		} else {
+			const query = activeFilters();
+			data = await callApi(`/api/audit/logs${query ? `?${query}` : ''}`);
+			status(`${data.count ?? data.events.length} audit event(s) loaded.`, 'success');
+		}
 		renderEvents(data.events || data.logs || []);
-		status(`${data.count ?? data.events.length} audit event(s) loaded.`, 'success');
 	} catch (error) {
 		status(error.message, 'error');
 	}
@@ -171,11 +178,76 @@ $('#auditLoginForm').addEventListener('submit', async (event) => {
 		});
 		localStorage.setItem('sessionToken', data.sessionToken);
 		walletStatus(`Connected: ${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`, true);
-		await loadEvents();
+		await checkCurrentSession();
 	} catch (error) {
 		status(error.message, 'error');
 	}
 });
 
-status('Đăng nhập Auditor hoặc Admin để xem và xác minh logs.', '');
-if (localStorage.getItem('sessionToken')) loadEvents();
+const handleLogout = async () => {
+	try {
+		await callApi('/api/logout', { method: 'POST' });
+	} catch (e) {
+		// Ignore logout error
+	} finally {
+		localStorage.removeItem('sessionToken');
+		walletStatus('Wallet not connected', false);
+		await checkCurrentSession();
+	}
+};
+
+$('#auditLogoutButton').addEventListener('click', handleLogout);
+$('#customerLogoutBtn').addEventListener('click', handleLogout);
+
+async function checkCurrentSession() {
+	const token = localStorage.getItem('sessionToken');
+	if (!token) {
+		$('#auditSessionPanel').hidden = true;
+		$('#customerBlockedNotice').hidden = true;
+		$('#auditLoginForm').hidden = false;
+		$('#auditFilters').hidden = true;
+		$('#auditWorkspace').hidden = false;
+		$('#events').innerHTML = '<tr><td colspan="10">Vui lòng kết nối ví MetaMask và đăng nhập tài khoản Auditor hoặc Admin.</td></tr>';
+		$('#eventCount').textContent = '0';
+		status('Đăng nhập Auditor hoặc Admin để xem và xác minh logs.', '');
+		return;
+	}
+
+	try {
+		const data = await callApi('/api/me');
+		const user = data.user;
+		$('#auditCurrentUserName').textContent = user.full_name;
+		$('#auditCurrentUserRole').textContent = user.role;
+		$('#auditCurrentWallet').textContent = user.walletAddress ? `${user.walletAddress.slice(0, 6)}…${user.walletAddress.slice(-4)}` : '';
+
+		if (user.role === 'CUSTOMER') {
+			$('#auditSessionPanel').hidden = false;
+			$('#customerBlockedNotice').hidden = false;
+			$('#auditLoginForm').hidden = true;
+			$('#auditFilters').hidden = true;
+			$('#auditWorkspace').hidden = true;
+			status('Khu vực giới hạn: Khách hàng (Customer) không có quyền truy cập trang Kiểm toán.', 'error');
+			return;
+		}
+
+		$('#auditSessionPanel').hidden = false;
+		$('#customerBlockedNotice').hidden = true;
+		$('#auditLoginForm').hidden = true;
+		$('#auditFilters').hidden = false;
+		$('#auditWorkspace').hidden = false;
+
+		await loadEvents(user.role);
+	} catch (error) {
+		localStorage.removeItem('sessionToken');
+		$('#auditSessionPanel').hidden = true;
+		$('#customerBlockedNotice').hidden = true;
+		$('#auditLoginForm').hidden = false;
+		$('#auditFilters').hidden = true;
+		$('#auditWorkspace').hidden = false;
+		$('#events').innerHTML = '<tr><td colspan="10">Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.</td></tr>';
+		$('#eventCount').textContent = '0';
+		status(error.message, 'error');
+	}
+}
+
+checkCurrentSession();

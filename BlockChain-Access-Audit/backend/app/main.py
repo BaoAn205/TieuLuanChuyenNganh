@@ -761,6 +761,8 @@ def verify_integrity(
     connection.close()
     if row is None:
         return {"verified": False, "message": "Không tìm thấy Audit Event"}
+    if current_user["role"] == "CUSTOMER" and row["user_id"] != current_user["user_id"]:
+        raise HTTPException(403, "Không có quyền xác minh Audit Event của tài khoản khác")
     details = json.loads(row["details"])
     if row["hash_version"] >= 2:
         recalculated_hash = event_data_hash(event_dict(row))
@@ -780,9 +782,12 @@ def verify_integrity(
             address=Web3.to_checksum_address(BLOCKCHAIN_CONTRACT_ADDRESS),
             abi=CONTRACT_ABI,
         )
-        on_chain_match = contract.functions.verifyAudit(
-            event_id, bytes.fromhex(recalculated_hash)
-        ).call({"from": Web3.to_checksum_address(current_user["wallet_address"])})
+        try:
+            on_chain_match = contract.functions.verifyAudit(
+                event_id, bytes.fromhex(recalculated_hash)
+            ).call({"from": Web3.to_checksum_address(current_user["wallet_address"])})
+        except Exception:
+            on_chain_match = False
     verified = database_match and (on_chain_match is not False)
     message = "Hash khớp với dữ liệu và blockchain" if verified and on_chain_match else (
         "Hash khớp với dữ liệu off-chain" if verified else "Phát hiện dữ liệu bị can thiệp: Hash không khớp"
