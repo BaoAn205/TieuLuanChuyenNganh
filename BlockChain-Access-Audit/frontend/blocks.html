@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Local Blockchain | Bancollect</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .chain-page { max-width: 1280px; margin: 32px auto; padding: 24px; }
+    .chain-head { display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+    .chain-strip { display:flex; align-items:stretch; gap:34px; overflow-x:auto; padding:24px 8px 32px; }
+    .block-card { position:relative; min-width:220px; max-width:260px; flex:1; text-align:left; border:1px solid #c8ded7; border-radius:16px; padding:18px; background:linear-gradient(145deg,#fff,#edf7f2); color:#17332d; cursor:pointer; box-shadow:0 8px 24px #0b443510; }
+    .block-card::after { content:'⟶'; position:absolute; right:-30px; top:43%; color:#0b765e; font-size:24px; }
+    .block-card:last-child::after { content:''; }
+    .block-card.selected { outline:3px solid #0b765e; }
+    .block-number { font-size:24px; font-weight:800; margin:8px 0; }
+    .block-card code,.tx-row code { overflow-wrap:anywhere; font-size:11px; }
+    .block-meta { color:#5c716b; font-size:13px; line-height:1.8; }
+    .tx-list { display:grid; gap:10px; }
+    .tx-row { display:grid; grid-template-columns:minmax(190px,1fr) 1fr 1fr auto; gap:12px; align-items:center; padding:14px; border:1px solid #dce8e3; border-radius:12px; }
+    .muted { color:#667a74; }
+    @media(max-width:700px){.chain-page{margin:8px;padding:12px}.tx-row{grid-template-columns:1fr}.chain-strip{gap:30px}}
+  </style>
+</head>
+<body>
+  <main class="panel chain-page">
+    <div class="chain-head">
+      <div><p class="eyebrow">Ganache JSON-RPC</p><h1>Local blockchain</h1><p id="chainStatus" class="muted">Connecting to the backend…</p></div>
+      <div><button id="refreshBlocks" class="primary-button" type="button">Refresh blocks</button> <a class="ghost-button" href="index.html">Back to banking</a></div>
+    </div>
+    <div id="blocks" class="chain-strip" aria-label="Recent blocks"></div>
+    <section class="panel">
+      <h2 id="selectedTitle">Select a block</h2>
+      <p id="selectedMeta" class="muted"></p>
+      <div id="transactions" class="tx-list"></div>
+    </section>
+  </main>
+  <script src="js/blocks.js?v=2"></script>
+</body>
+</html>

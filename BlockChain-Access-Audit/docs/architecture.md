@@ -35,7 +35,7 @@ New records use hash version 2. The canonical JSON includes:
 
 Keys are sorted and JSON separators are compact before SHA-256. `dataHash`, `blockchainTxHash`, and the internal hash version are excluded from the canonical payload. Existing rows are migrated as version 1 and continue to use the legacy canonical fields (`userId`, `action`, `resource`, `details`) so old records are not incorrectly reported as tampered.
 
-Verification recomputes the hash from the SQLite row. If the row has a blockchain transaction, the recomputed hash is also checked with contract `verifyAudit`. For legacy/off-chain-only rows, the API reports that only off-chain verification was possible.
+All activity, including login/logout and routine views, remains in Firestore for operational history. Only `TRANSFER`, `CHANGE_PROFILE`, and `ADMIN_ACCESS` are anchored as individual blockchain transactions; role grant/revoke are recorded by the contract's role events. Verification recomputes the hash from the Firestore row. If the row has a blockchain transaction, the recomputed hash is also checked with contract `verifyAudit`. For off-chain-only rows, the API reports that only off-chain verification was possible.
 
 The receipt's `AuditRecorded` log is parsed and matched by `eventId`; its transaction hash, block number and log index are stored on the same SQLite row. This enables DB-to-receipt tracing without guessing based on timestamp or user.
 

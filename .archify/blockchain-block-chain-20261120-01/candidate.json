@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Blockchain Blocks and Audit Storage",
+    "subtitle": "How Ganache links blocks and where this project records audit evidence",
+    "output": ".archify/blockchain-block-chain-20261120-01/blockchain-block-chain.html",
+    "quality_profile": "showcase",
+    "visual_preset": "blueprint",
+    "repository": {
+      "url": "https://github.com/BaoAn205/TieuLuanChuyenNganh.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "126b50c0160b2047fff6f691beecf912180f7258"
+    }
+  },
+  "components": [
+    {
+      "id": "previous-block",
+      "type": "database",
+      "label": "Block N−1",
+      "sublabel": "hash: H(N−1)",
+      "tag": "earlier block",
+      "pos": [60, 170],
+      "size": [160, 86]
+    },
+    {
+      "id": "current-block",
+      "type": "database",
+      "label": "Block N",
+      "sublabel": "parentHash: H(N−1)",
+      "tag": "block header",
+      "pos": [310, 170],
+      "size": [190, 86],
+      "sources": [
+        { "path": "BlockChain-Access-Audit/backend/app/main.py", "line": 382, "end_line": 395, "label": "receipt block" }
+      ]
+    },
+    {
+      "id": "next-block",
+      "type": "database",
+      "label": "Block N+1",
+      "sublabel": "parentHash: H(N)",
+      "tag": "next block",
+      "pos": [590, 170],
+      "size": [190, 86]
+    },
+    {
+      "id": "audit-transaction",
+      "type": "backend",
+      "label": "Transaction",
+      "sublabel": "recordAudit(eventId, dataHash)",
+      "tag": "included in Block N",
+      "pos": [310, 355],
+      "size": [190, 76],
+      "sources": [
+        { "path": "BlockChain-Access-Audit/backend/app/main.py", "line": 366, "end_line": 383, "label": "signed transaction" }
+      ]
+    },
+    {
+      "id": "contract-event",
+      "type": "security",
+      "label": "AccessAndAudit contract",
+      "sublabel": "stores audit fields; emits AuditRecorded",
+      "tag": "on-chain evidence",
+      "pos": [310, 535],
+      "size": [230, 86],
+      "sources": [
+        { "path": "BlockChain-Access-Audit/blockchain/contracts/AccessAndAudit.sol", "line": 27, "end_line": 67, "label": "stored event shape" },
+        { "path": "BlockChain-Access-Audit/blockchain/contracts/AccessAndAudit.sol", "line": 211, "end_line": 267, "label": "record audit" }
+      ]
+    },
+    {
+      "id": "firestore",
+      "type": "cloud",
+      "label": "Firebase Firestore",
+      "sublabel": "off-chain user, account, transaction, audit rows",
+      "tag": "separate store",
+      "pos": [790, 445],
+      "size": [230, 86],
+      "sources": [
+        { "path": "BlockChain-Access-Audit/backend/app/main.py", "line": 403, "end_line": 435, "label": "save audit row" }
+      ]
+    }
+  ],
+  "connections": [
+    { "from": "previous-block", "to": "current-block", "label": "parent hash link", "variant": "emphasis" },
+    { "from": "current-block", "to": "next-block", "label": "parent hash link", "variant": "emphasis" },
+    { "from": "audit-transaction", "to": "current-block", "label": "included in block", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "from": "audit-transaction", "to": "contract-event", "label": "calls contract; emits event", "variant": "security" },
+    { "from": "audit-transaction", "to": "firestore", "label": "stores tx hash, block number, log index", "variant": "dashed", "route": "orthogonal-h" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Read the chain",
+      "items": [
+        "Each block points to its parent with a hash, making the sequence linkable.",
+        "A block contains transactions; this project sends recordAudit transactions to Ganache.",
+        "Block N−1, N and N+1 are illustrative labels, not your live block numbers."
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "What this project stores",
+      "items": [
+        "The contract stores event ID, user ID hash, action, resource, timestamp, result, data hash and actor.",
+        "Firestore keeps the full application data and a pointer to the on-chain transaction/block.",
+        "This diagram shows the storage relationship; it does not read live Ganache blocks."
+      ]
+    }
+  ]
+}

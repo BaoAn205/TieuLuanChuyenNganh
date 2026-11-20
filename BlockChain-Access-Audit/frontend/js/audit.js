@@ -227,6 +227,7 @@ async function checkCurrentSession() {
 		$('#auditCurrentWallet').textContent = user.walletAddress ? `${user.walletAddress.slice(0, 6)}…${user.walletAddress.slice(-4)}` : '';
 
 		if (user.role === 'CUSTOMER') {
+			$('#blockViewerLink').hidden = true;
 			$('#auditSessionPanel').hidden = false;
 			$('#customerBlockedNotice').hidden = false;
 			$('#auditLoginForm').hidden = true;
@@ -236,6 +237,7 @@ async function checkCurrentSession() {
 			return;
 		}
 
+		$('#blockViewerLink').hidden = !['ADMIN', 'STAFF', 'AUDITOR'].includes(user.role);
 		$('#auditSessionPanel').hidden = false;
 		$('#customerBlockedNotice').hidden = true;
 		$('#auditLoginForm').hidden = true;

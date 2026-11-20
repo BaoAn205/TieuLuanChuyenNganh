@@ -26,6 +26,8 @@ ACTIONS = {
     "LOGIN", "LOGOUT", "VIEW_ACCOUNT", "VIEW_TRANSACTION",
     "TRANSFER", "CHANGE_PROFILE", "ADMIN_ACCESS",
 }
+# Keep routine activity in Firestore; anchor only higher-impact actions on-chain.
+ON_CHAIN_ACTIONS = {"TRANSFER", "CHANGE_PROFILE", "ADMIN_ACCESS"}
 BLOCKCHAIN_ENABLED = os.getenv("BLOCKCHAIN_ENABLED", "false").lower() == "true"
 BLOCKCHAIN_RPC_URL = os.getenv("BLOCKCHAIN_RPC_URL", "http://127.0.0.1:8546")
 BLOCKCHAIN_CONTRACT_ADDRESS = os.getenv("BLOCKCHAIN_CONTRACT_ADDRESS", "")
@@ -417,7 +419,7 @@ def add_event(connection: sqlite3.Connection | None, user_id: str, action: str,
             "details": details,
         }
         event["dataHash"] = event_data_hash(event)
-        chain_record = record_on_blockchain(event)
+        chain_record = record_on_blockchain(event) if action in ON_CHAIN_ACTIONS else None
         if chain_record:
             event.update({
                 "blockchainTxHash": chain_record["txHash"],
@@ -467,7 +469,9 @@ def add_event(connection: sqlite3.Connection | None, user_id: str, action: str,
     )
     event["dataHash"] = data_hash
     try:
-        transaction_hash = record_on_blockchain(event)
+        transaction_hash = (
+            record_on_blockchain(event) if action in ON_CHAIN_ACTIONS else None
+        )
     except Exception:
         connection.rollback()
         raise
@@ -492,6 +496,40 @@ def startup() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/blockchain/blocks")
+def blockchain_blocks(
+    limit: int = Query(default=12, ge=1, le=50),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Read recent blocks from the configured local JSON-RPC node for the block viewer."""
+    current_user = get_current_user(authorization)
+    if current_user["role"] not in {"ADMIN", "STAFF", "AUDITOR"}:
+        raise HTTPException(403, "Only ADMIN, STAFF, and AUDITOR can inspect blockchain blocks")
+    web3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_RPC_URL, request_kwargs={"timeout": 5}))
+    if not web3.is_connected():
+        raise HTTPException(503, f"Cannot connect to blockchain RPC at {BLOCKCHAIN_RPC_URL}")
+    latest = web3.eth.block_number
+    first = max(0, latest - limit + 1)
+    blocks = []
+    for number in range(first, latest + 1):
+        block = web3.eth.get_block(number, full_transactions=True)
+        transactions = [{
+            "hash": tx["hash"].hex(),
+            "from": tx["from"],
+            "to": tx["to"],
+            "valueWei": str(tx["value"]),
+        } for tx in block["transactions"]]
+        blocks.append({
+            "number": int(block["number"]),
+            "hash": block["hash"].hex(),
+            "parentHash": block["parentHash"].hex(),
+            "timestamp": int(block["timestamp"]),
+            "transactionCount": len(transactions),
+            "transactions": transactions,
+        })
+    return {"chainId": int(web3.eth.chain_id), "latestBlock": latest, "blocks": blocks}
 
 
 @app.get("/api/me")

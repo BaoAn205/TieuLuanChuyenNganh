@@ -49,7 +49,7 @@ Successful login returns `user`, `sessionToken`, `expiresAt`, and the `LOGIN` au
 
 Audit logs return both `logs` and `events` arrays for compatibility. Each event includes `eventId`, `userId`, `role`, `action`, `resource`, `timestamp`, `sourceIp`, `result`, `riskLevel`, `dataHash`, `hashVersion`, `blockchainTxHash`, and `details`.
 
-When the event is on-chain, it also includes `blockchainBlockNumber` and `blockchainLogIndex`; the receipt's `AuditRecorded` log is matched by event ID before saving. `/api/audit/logs` accepts `userId`, `role`, `action`, `from`, `to`, and `blockchainStatus=recorded|offchain` query parameters. Customer access is limited to `/api/audit/my-logs` and owned event detail.
+New `LOGIN`, `LOGOUT`, `VIEW_ACCOUNT`, and `VIEW_TRANSACTION` events are stored off-chain only. `TRANSFER`, `CHANGE_PROFILE`, and `ADMIN_ACCESS` are anchored on-chain. When an event is on-chain, it also includes `blockchainBlockNumber` and `blockchainLogIndex`; the receipt's `AuditRecorded` log is matched by event ID before saving. `/api/audit/logs` accepts `userId`, `role`, `action`, `from`, `to`, and `blockchainStatus=recorded|offchain` query parameters. Customer access is limited to `/api/audit/my-logs` and owned event detail.
 
 Integrity verification returns `verified`, `message`, `storedHash`, `recalculatedHash`, `onChainVerified`, and the event. `onChainVerified` is `null` for records without an on-chain transaction.
 
