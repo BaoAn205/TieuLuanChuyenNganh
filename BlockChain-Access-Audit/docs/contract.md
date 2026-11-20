@@ -38,7 +38,7 @@ Demo local chain: Ganache JSON-RPC `http://127.0.0.1:8546`, chain ID `31337`.
 
 Hardhat compiler output contains the full ABI at `blockchain/artifacts/contracts/AccessAndAudit.sol/AccessAndAudit.json`. The backend keeps the small ABI fragment it uses for `getRole`, `recordAudit`, `verifyAudit`, and `AuditRecorded` in `backend/app/main.py`.
 
-Start Ganache with `npm run node:ganache`; deploy and provision the four demo roles with `npm run deploy:local`. The printed address is specific to that Ganache chain instance and must be set as `BLOCKCHAIN_CONTRACT_ADDRESS`. Restarting Ganache resets its chain; redeploy and update the address after a reset.
+Start Ganache with `npm run node:ganache`; deploy with `npm run deploy:local`. The deployer becomes ADMIN. Additional initial roles can be supplied through `INITIAL_ROLE_ASSIGNMENTS` as JSON containing `address`, numeric `role` (2 STAFF, 3 AUDITOR, 4 CUSTOMER), and `userId`. Customers created from the Admin UI are assigned their on-chain role by the backend signer when blockchain mode is enabled. The printed contract address is specific to that Ganache chain instance and must be set as `BLOCKCHAIN_CONTRACT_ADDRESS`. Restarting Ganache resets its chain; redeploy and update the address after a reset.
 
 ## Development wallets
 

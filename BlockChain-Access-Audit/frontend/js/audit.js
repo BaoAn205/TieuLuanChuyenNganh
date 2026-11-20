@@ -27,7 +27,13 @@ async function callApi(path, options = {}) {
 			...(options.headers || {}),
 		},
 	});
-	const data = await response.json();
+	const responseText = await response.text();
+	let data;
+	try {
+		data = responseText ? JSON.parse(responseText) : {};
+	} catch {
+		data = { detail: responseText || `API returned HTTP ${response.status}` };
+	}
 	if (!response.ok) throw new Error(data.detail || 'Request failed');
 	return data;
 }

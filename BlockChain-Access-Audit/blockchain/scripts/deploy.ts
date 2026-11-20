@@ -15,18 +15,18 @@ const contract =
 
 await contract.waitForDeployment();
 
-const demoRoles = [
-  { signerIndex: 1, role: 2, userId: "staff-001" },
-  { signerIndex: 2, role: 3, userId: "auditor-001" },
-  { signerIndex: 3, role: 4, userId: "customer-001" },
-];
-
-for (const assignment of demoRoles) {
-  const signer = signers[assignment.signerIndex];
-  if (!signer) continue;
-  const userIdHash = ethers.sha256(ethers.toUtf8Bytes(assignment.userId));
-  await (await contract.grantRole(signer.address, assignment.role, userIdHash)).wait();
-  console.log(`Granted role ${assignment.role} to ${signer.address}`);
+const initialAssignments = process.env.INITIAL_ROLE_ASSIGNMENTS;
+if (initialAssignments) {
+  const assignments: Array<{ address: string; role: number; userId: string }> =
+    JSON.parse(initialAssignments);
+  for (const assignment of assignments) {
+    if (![2, 3, 4].includes(assignment.role) || !assignment.userId) {
+      throw new Error("Each initial role needs role 2/3/4 and a userId.");
+    }
+    const userIdHash = ethers.sha256(ethers.toUtf8Bytes(assignment.userId));
+    await (await contract.grantRole(assignment.address, assignment.role, userIdHash)).wait();
+    console.log(`Granted role ${assignment.role} to ${assignment.address}`);
+  }
 }
 
 const contractAddress =

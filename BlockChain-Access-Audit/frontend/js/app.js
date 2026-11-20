@@ -28,7 +28,13 @@ async function callApi(path, options = {}) {
       ...(options.headers || {}),
     },
   });
-  const data = await response.json();
+  const responseText = await response.text();
+  let data;
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    data = { detail: responseText || `API returned HTTP ${response.status}` };
+  }
   if (!response.ok) throw new Error(data.detail || 'Request failed');
   return data;
 }
@@ -59,9 +65,9 @@ async function refresh() {
   $('#incomingTotal').textContent = `₫ ${incoming.toLocaleString()}`;
   $('#outgoingTotal').textContent = `₫ ${outgoing.toLocaleString()}`;
   $('#transactions').innerHTML = transactions.transactions.length
-    ? transactions.transactions.map((item) => `
+    ? transactions.transactions.map((item, index) => `
         <tr>
-          <td>#${item.transaction_id}</td>
+          <td>${transactions.transactions.length - index}</td>
           <td>${item.from_account}</td>
           <td>${item.to_account}</td>
           <td>${Number(item.amount).toLocaleString()} đ</td>
@@ -265,11 +271,11 @@ document.querySelectorAll('.role-option').forEach((button) => {
     document.querySelectorAll('.role-option').forEach((option) => option.classList.remove('active'));
     button.classList.add('active');
     $('#loginRole').value = button.dataset.role;
-    $('#userId').value = button.dataset.role === 'ADMIN' ? 'admin-001' : 'customer-001';
+    $('#userId').value = '';
     $('#password').value = '';
     $('#loginHint').textContent = button.dataset.role === 'ADMIN'
-      ? 'Demo administrator: admin-001'
-      : 'Demo customer: customer-001';
+      ? 'Enter the administrator user ID associated with the connected wallet.'
+      : 'Enter the customer user ID associated with the connected wallet.';
     $('#password').focus();
   });
 });
@@ -370,7 +376,7 @@ $('#confirmTransfer').addEventListener('click', async () => {
     $('#toAccount').value = '';
     recipient = null;
     $('#recipientPreview').textContent = 'Enter an account number to verify the recipient.';
-    status(`Transfer complete. Reference #${data.transaction.transactionId}; audit event #${data.audit.eventId}.`, 'success', '#appStatus');
+    status('Transfer completed successfully.', 'success', '#appStatus');
   } catch (error) {
     $('#confirmStatus').textContent = error.message;
     $('#confirmStatus').className = 'status error';
@@ -382,6 +388,39 @@ $('#confirmTransfer').addEventListener('click', async () => {
 });
 
 $('#refreshAdminLogs').addEventListener('click', loadAdminLogs);
+
+$('#createCustomerForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const output = $('#createCustomerStatus');
+  button.disabled = true;
+  output.textContent = 'Creating customer...';
+  output.className = 'status';
+  try {
+    const result = await callApi('/api/admin/customers', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId: $('#newCustomerUserId').value.trim(),
+        fullName: $('#newCustomerName').value.trim(),
+        password: $('#newCustomerPassword').value,
+        walletAddress: $('#newCustomerWallet').value.trim(),
+        accountId: $('#newCustomerAccount').value.trim(),
+        initialBalance: Number($('#newCustomerBalance').value),
+      }),
+    });
+    output.textContent = `Created ${result.user.user_id} with account ${result.account.account_id}.`;
+    output.className = 'status success';
+    form.reset();
+    $('#newCustomerBalance').value = '0';
+  } catch (error) {
+    output.textContent = error.message;
+    output.className = 'status error';
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $('#refreshCustomerAudit').addEventListener('click', loadCustomerAudit);
 
 $('#toggleCustomerAudit')?.addEventListener('click', () => {

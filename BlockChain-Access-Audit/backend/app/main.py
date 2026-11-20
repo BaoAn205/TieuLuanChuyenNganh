@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from web3 import Web3
+from web3.exceptions import BadFunctionCallOutput
 
 try:
     from .crypto_utils import sha256
@@ -18,14 +19,9 @@ except ImportError:
     from crypto_utils import sha256
 
 DB_PATH = Path(__file__).resolve().parent.parent / "database.db"
+DATABASE_BACKEND = os.getenv("DATABASE_BACKEND", "firestore").lower()
 ROLES = {"ADMIN", "STAFF", "AUDITOR", "CUSTOMER"}
 ROLE_IDS = {"ADMIN": 1, "STAFF": 2, "AUDITOR": 3, "CUSTOMER": 4}
-DEMO_WALLETS = {
-    "admin-001": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    "staff-001": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-    "auditor-001": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-    "customer-001": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
-}
 ACTIONS = {
     "LOGIN", "LOGOUT", "VIEW_ACCOUNT", "VIEW_TRANSACTION",
     "TRANSFER", "CHANGE_PROFILE", "ADMIN_ACCESS",
@@ -85,19 +81,24 @@ CONTRACT_ABI = [
 ]
 
 app = FastAPI(title="Blockchain Access Audit API", version="1.0.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 def connect() -> sqlite3.Connection:
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def use_firestore() -> bool:
+    return DATABASE_BACKEND == "firestore"
+
+
+def firestore_store():
+    try:
+        from . import firestore_store as store
+    except ImportError:
+        import firestore_store as store
+    return store
 
 
 def hash_password(password: str) -> str:
@@ -136,18 +137,33 @@ def verify_wallet_role(wallet_address: str, role: str) -> None:
     web3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_RPC_URL))
     if not web3.is_connected():
         raise HTTPException(503, "Không kết nối được Blockchain RPC")
+    contract_address = Web3.to_checksum_address(BLOCKCHAIN_CONTRACT_ADDRESS)
+    if not web3.eth.get_code(contract_address):
+        raise HTTPException(
+            503,
+            "No smart contract is deployed at BLOCKCHAIN_CONTRACT_ADDRESS on the configured RPC. Redeploy after restarting Ganache and update the address.",
+        )
     contract = web3.eth.contract(
-        address=Web3.to_checksum_address(BLOCKCHAIN_CONTRACT_ADDRESS),
+        address=contract_address,
         abi=CONTRACT_ABI,
     )
-    on_chain_role = contract.functions.getRole(
-        Web3.to_checksum_address(wallet_address)
-    ).call()
+    try:
+        on_chain_role = contract.functions.getRole(
+            Web3.to_checksum_address(wallet_address)
+        ).call()
+    except BadFunctionCallOutput as error:
+        raise HTTPException(
+            503,
+            "Could not read getRole from the configured contract. Check that BLOCKCHAIN_CONTRACT_ADDRESS points to the deployed AccessAndAudit contract.",
+        ) from error
     if on_chain_role != ROLE_IDS[role]:
         raise HTTPException(403, "Wallet role does not match this application account")
 
 
 def init_db() -> None:
+    if use_firestore():
+        firestore_store().initialize()
+        return
     connection = connect()
     connection.executescript(
         """
@@ -217,26 +233,6 @@ def init_db() -> None:
     session_columns = {row[1] for row in connection.execute("PRAGMA table_info(sessions)")}
     if "expires_at" not in session_columns:
         connection.execute("ALTER TABLE sessions ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''")
-    connection.executemany(
-        "INSERT OR IGNORE INTO users (user_id, full_name, role, password) VALUES (?, ?, ?, ?)",
-        [
-            ("admin-001", "System Administrator", "ADMIN", hash_password("admin123")),
-            ("staff-001", "Bank Staff", "STAFF", hash_password("staff123")),
-            ("auditor-001", "Audit Officer", "AUDITOR", hash_password("audit123")),
-            ("customer-001", "Demo Customer", "CUSTOMER", hash_password("customer123")),
-        ],
-    )
-    connection.executemany(
-        "UPDATE users SET wallet_address = ? WHERE user_id = ? AND wallet_address = ''",
-        [(address, user_id) for user_id, address in DEMO_WALLETS.items()],
-    )
-    connection.executemany(
-        "INSERT OR IGNORE INTO accounts VALUES (?, ?, ?)",
-        [
-            ("ACC-1001", "customer-001", 10000),
-            ("ACC-2002", "staff-001", 0),
-        ],
-    )
     connection.commit()
     connection.close()
 
@@ -260,6 +256,20 @@ def get_current_user(authorization: str | None) -> dict[str, str]:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Bearer session token is required")
     token = authorization.removeprefix("Bearer ").strip()
+    if use_firestore():
+        user = firestore_store().get_session(token)
+        if user is None:
+            raise HTTPException(401, "Session token is invalid")
+        try:
+            expired = datetime.fromisoformat(user["expires_at"]) <= datetime.now(timezone.utc)
+        except (TypeError, ValueError):
+            expired = True
+        if expired:
+            firestore_store().delete_session(token)
+            raise HTTPException(401, "Session has expired; sign in again")
+        return {key: str(user[key]) for key in (
+            "user_id", "full_name", "role", "wallet_address", "expires_at"
+        )}
     connection = connect()
     user = connection.execute(
         """SELECT users.user_id, users.full_name, users.role, users.wallet_address, sessions.expires_at
@@ -315,7 +325,10 @@ def event_data_hash(event: dict[str, Any]) -> str:
     return sha256(canonical)
 
 
-def event_dict(row: sqlite3.Row) -> dict[str, Any]:
+def event_dict(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    details = row["details"]
+    if isinstance(details, str):
+        details = json.loads(details)
     return {
         "eventId": row["event_id"],
         "userId": row["user_id"],
@@ -331,7 +344,7 @@ def event_dict(row: sqlite3.Row) -> dict[str, Any]:
         "blockchainTxHash": row["blockchain_tx_hash"],
         "blockchainBlockNumber": row["blockchain_block_number"],
         "blockchainLogIndex": row["blockchain_log_index"],
-        "details": json.loads(row["details"]),
+        "details": details,
     }
 
 
@@ -384,9 +397,46 @@ def record_on_blockchain(event: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def add_event(connection: sqlite3.Connection, user_id: str, action: str,
+def add_event(connection: sqlite3.Connection | None, user_id: str, action: str,
               resource: str, result: str, details: dict[str, Any],
               source_ip: str = "127.0.0.1") -> dict[str, Any]:
+    if use_firestore():
+        store = firestore_store()
+        user = store.get_user(user_id)
+        if user is None:
+            raise HTTPException(404, "Không tìm thấy user")
+        if user["role"] not in ROLES or action not in ACTIONS:
+            raise HTTPException(400, "Role hoặc action không hợp lệ")
+        event = {
+            "eventId": store.reserve_id("audit_event_id"), "userId": user_id,
+            "role": user["role"], "action": action, "resource": resource,
+            "timestamp": now(), "sourceIp": source_ip or "unknown",
+            "result": result, "riskLevel": "UNASSESSED", "dataHash": "",
+            "hashVersion": 2, "blockchainTxHash": None,
+            "blockchainBlockNumber": None, "blockchainLogIndex": None,
+            "details": details,
+        }
+        event["dataHash"] = event_data_hash(event)
+        chain_record = record_on_blockchain(event)
+        if chain_record:
+            event.update({
+                "blockchainTxHash": chain_record["txHash"],
+                "blockchainBlockNumber": chain_record["blockNumber"],
+                "blockchainLogIndex": chain_record["logIndex"],
+            })
+        store.save_audit_event(event["eventId"], {
+            "event_id": event["eventId"], "user_id": event["userId"],
+            "role": event["role"], "action": event["action"],
+            "resource": event["resource"], "timestamp": event["timestamp"],
+            "source_ip": event["sourceIp"], "result": event["result"],
+            "risk_level": event["riskLevel"], "data_hash": event["dataHash"],
+            "hash_version": event["hashVersion"],
+            "blockchain_tx_hash": event["blockchainTxHash"],
+            "blockchain_block_number": event["blockchainBlockNumber"],
+            "blockchain_log_index": event["blockchainLogIndex"],
+            "details": details,
+        }, merge=False)
+        return event
     user = connection.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
     if user is None:
         raise HTTPException(404, "Không tìm thấy user")
@@ -460,41 +510,58 @@ def me(authorization: str | None = Header(default=None)) -> dict[str, Any]:
 
 @app.post("/api/login")
 def login(payload: dict[str, Any], request: Request) -> dict[str, Any]:
-    connection = connect()
-    user = connection.execute(
-        "SELECT user_id, full_name, role, password, wallet_address FROM users WHERE user_id = ?",
-        (payload.get("userId"),),
-    ).fetchone()
+    connection = None if use_firestore() else connect()
+    if use_firestore():
+        user = firestore_store().get_user(payload.get("userId", ""))
+    else:
+        user = connection.execute(
+            "SELECT user_id, full_name, role, password, wallet_address FROM users WHERE user_id = ?",
+            (payload.get("userId"),),
+        ).fetchone()
     if user is None or not verify_password(payload.get("password", ""), user["password"]):
-        connection.close()
+        if connection is not None:
+            connection.close()
         raise HTTPException(401, "Thông tin đăng nhập không đúng")
     wallet_address = str(payload.get("walletAddress", ""))
     if not user["wallet_address"] or wallet_address.lower() != user["wallet_address"].lower():
-        connection.close()
+        if connection is not None:
+            connection.close()
         raise HTTPException(403, "Connected wallet is not assigned to this user")
     try:
         verify_wallet_role(wallet_address, user["role"])
     except Exception:
-        connection.close()
+        if connection is not None:
+            connection.close()
         raise
     if not user["password"].startswith("pbkdf2_sha256$"):
-        connection.execute(
-            "UPDATE users SET password = ? WHERE user_id = ?",
-            (hash_password(payload["password"]), user["user_id"]),
-        )
+        upgraded_password = hash_password(payload["password"])
+        if use_firestore():
+            firestore_store().save_user(user["user_id"], {"password": upgraded_password})
+        else:
+            connection.execute(
+                "UPDATE users SET password = ? WHERE user_id = ?",
+                (upgraded_password, user["user_id"]),
+            )
     session_token = secrets.token_urlsafe(32)
     created_at = now()
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=8)).isoformat(timespec="seconds")
-    connection.execute(
-        "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-        (session_token, user["user_id"], created_at, expires_at),
-    )
+    if use_firestore():
+        firestore_store().save_session(session_token, {
+            "user_id": user["user_id"], "created_at": created_at,
+            "expires_at": expires_at,
+        })
+    else:
+        connection.execute(
+            "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (session_token, user["user_id"], created_at, expires_at),
+        )
     audit = add_event(
         connection, user["user_id"], "LOGIN", "banking-session", "SUCCESS", {},
         request_ip(request),
     )
-    connection.commit()
-    connection.close()
+    if connection is not None:
+        connection.commit()
+        connection.close()
     return {
         "user": {
             "user_id": user["user_id"], "full_name": user["full_name"],
@@ -513,14 +580,18 @@ def logout(
 ) -> dict[str, str]:
     current_user = get_current_user(authorization)
     token = authorization.removeprefix("Bearer ").strip()
-    connection = connect()
-    add_event(
-        connection, current_user["user_id"], "LOGOUT", "banking-session", "SUCCESS", {},
-        request_ip(request),
-    )
-    connection.execute("DELETE FROM sessions WHERE token = ?", (token,))
-    connection.commit()
-    connection.close()
+    if use_firestore():
+        add_event(None, current_user["user_id"], "LOGOUT", "banking-session", "SUCCESS", {}, request_ip(request))
+        firestore_store().delete_session(token)
+    else:
+        connection = connect()
+        add_event(
+            connection, current_user["user_id"], "LOGOUT", "banking-session", "SUCCESS", {},
+            request_ip(request),
+        )
+        connection.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        connection.commit()
+        connection.close()
     return {"status": "logged_out"}
 
 
@@ -534,14 +605,20 @@ def change_profile(
     full_name = str(payload.get("fullName", "")).strip()
     if not full_name or len(full_name) > 100:
         raise HTTPException(400, "Tên hiển thị phải có từ 1 đến 100 ký tự")
-    connection = connect()
-    old_name = connection.execute(
-        "SELECT full_name FROM users WHERE user_id = ?", (current_user["user_id"],)
-    ).fetchone()["full_name"]
-    connection.execute(
-        "UPDATE users SET full_name = ? WHERE user_id = ?",
-        (full_name, current_user["user_id"]),
-    )
+    if use_firestore():
+        connection = None
+        user = firestore_store().get_user(current_user["user_id"])
+        old_name = user["full_name"]
+        firestore_store().save_user(current_user["user_id"], {"full_name": full_name})
+    else:
+        connection = connect()
+        old_name = connection.execute(
+            "SELECT full_name FROM users WHERE user_id = ?", (current_user["user_id"],)
+        ).fetchone()["full_name"]
+        connection.execute(
+            "UPDATE users SET full_name = ? WHERE user_id = ?",
+            (full_name, current_user["user_id"]),
+        )
     audit = add_event(
         connection,
         current_user["user_id"],
@@ -551,8 +628,9 @@ def change_profile(
         {"oldFullName": old_name, "newFullName": full_name},
         request_ip(request),
     )
-    connection.commit()
-    connection.close()
+    if connection is not None:
+        connection.commit()
+        connection.close()
     return {"user": {**current_user, "full_name": full_name}, "audit": audit}
 
 
@@ -564,14 +642,127 @@ def admin_access(
     current_user = get_current_user(authorization)
     if current_user["role"] != "ADMIN":
         raise HTTPException(403, "Chỉ ADMIN được truy cập khu vực quản trị")
-    connection = connect()
+    connection = None if use_firestore() else connect()
     audit = add_event(
         connection, current_user["user_id"], "ADMIN_ACCESS", "admin-console", "SUCCESS", {},
         request_ip(request),
     )
-    connection.commit()
-    connection.close()
+    if connection is not None:
+        connection.commit()
+        connection.close()
     return {"audit": audit}
+
+
+@app.post("/api/admin/customers")
+def create_customer(
+    payload: dict[str, Any],
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    current_user = get_current_user(authorization)
+    if current_user["role"] != "ADMIN":
+        raise HTTPException(403, "Only ADMIN can create customer accounts")
+
+    user_id = str(payload.get("userId", "")).strip()
+    full_name = str(payload.get("fullName", "")).strip()
+    password = str(payload.get("password", ""))
+    wallet_address = str(payload.get("walletAddress", "")).strip()
+    account_id = str(payload.get("accountId", "")).strip()
+    balance = payload.get("initialBalance", 0)
+    if not user_id or len(user_id) > 64 or not user_id.replace("-", "").replace("_", "").isalnum():
+        raise HTTPException(400, "User ID must use letters, numbers, hyphens, or underscores")
+    if not full_name or len(full_name) > 100:
+        raise HTTPException(400, "Full name must contain 1 to 100 characters")
+    if len(password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    if not Web3.is_address(wallet_address):
+        raise HTTPException(400, "Enter a valid wallet address")
+    if not account_id or len(account_id) > 32:
+        raise HTTPException(400, "Enter a valid account ID")
+    if isinstance(balance, bool) or not isinstance(balance, (int, float)) or not 0 <= balance <= 1_000_000_000_000:
+        raise HTTPException(400, "Initial balance must be a non-negative number")
+
+    store = firestore_store() if use_firestore() else None
+    if store is not None:
+        if store.get_user(user_id) is not None:
+            raise HTTPException(409, "User ID already exists")
+        if store.get_account(account_id) is not None:
+            raise HTTPException(409, "Account ID already exists")
+
+    if BLOCKCHAIN_ENABLED:
+        if not BLOCKCHAIN_CONTRACT_ADDRESS or not BLOCKCHAIN_PRIVATE_KEY:
+            raise HTTPException(503, "Blockchain contract and admin private key must be configured")
+        web3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_RPC_URL))
+        if not web3.is_connected():
+            raise HTTPException(503, "Cannot connect to blockchain RPC")
+        account = web3.eth.account.from_key(BLOCKCHAIN_PRIVATE_KEY)
+        contract = web3.eth.contract(
+            address=Web3.to_checksum_address(BLOCKCHAIN_CONTRACT_ADDRESS),
+            abi=[{
+                "inputs": [
+                    {"internalType": "address", "name": "account", "type": "address"},
+                    {"internalType": "enum AccessAndAudit.Role", "name": "role", "type": "uint8"},
+                    {"internalType": "bytes32", "name": "userIdHash", "type": "bytes32"},
+                ],
+                "name": "grantRole", "outputs": [], "stateMutability": "nonpayable", "type": "function",
+            }, {
+                "inputs": [{"internalType": "address", "name": "account", "type": "address"}],
+                "name": "getRole",
+                "outputs": [{"internalType": "enum AccessAndAudit.Role", "name": "", "type": "uint8"}],
+                "stateMutability": "view", "type": "function",
+            }],
+        )
+        if contract.functions.getRole(account.address).call() != ROLE_IDS["ADMIN"]:
+            raise HTTPException(503, "BLOCKCHAIN_PRIVATE_KEY must belong to an ADMIN wallet on this contract")
+        try:
+            tx = contract.functions.grantRole(
+                Web3.to_checksum_address(wallet_address), ROLE_IDS["CUSTOMER"],
+                bytes.fromhex(sha256(user_id)),
+            ).build_transaction({
+                "from": account.address,
+                "nonce": web3.eth.get_transaction_count(account.address),
+                "chainId": web3.eth.chain_id,
+                "gas": 200000,
+                "gasPrice": web3.eth.gas_price,
+            })
+            signed = account.sign_transaction(tx)
+            tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+            if receipt.status != 1:
+                raise HTTPException(502, "Blockchain rejected customer role assignment")
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(502, f"Could not assign customer role: {error}") from error
+
+    user = {
+        "user_id": user_id, "full_name": full_name, "role": "CUSTOMER",
+        "password": hash_password(password), "wallet_address": Web3.to_checksum_address(wallet_address),
+    }
+    account_row = {"account_id": account_id, "user_id": user_id, "balance": float(balance)}
+    if use_firestore():
+        try:
+            store.create_customer(user, account_row)
+        except Exception as error:
+            raise HTTPException(409, f"Could not create customer; check for duplicate IDs: {error}") from error
+    else:
+        connection = connect()
+        try:
+            connection.execute(
+                "INSERT INTO users (user_id, full_name, role, password, wallet_address) VALUES (?, ?, ?, ?, ?)",
+                (user_id, full_name, "CUSTOMER", user["password"], user["wallet_address"]),
+            )
+            connection.execute(
+                "INSERT INTO accounts (account_id, user_id, balance) VALUES (?, ?, ?)",
+                (account_id, user_id, float(balance)),
+            )
+            connection.commit()
+        except sqlite3.IntegrityError as error:
+            connection.rollback()
+            raise HTTPException(409, "User ID or account ID already exists") from error
+        finally:
+            connection.close()
+
+    return {"user": {"user_id": user_id, "full_name": full_name, "role": "CUSTOMER"}, "account": account_row}
 
 
 @app.get("/api/accounts/{user_id}")
@@ -582,27 +773,37 @@ def accounts(
 ) -> dict[str, Any]:
     current_user = get_current_user(authorization)
     ensure_user_access(current_user, user_id)
-    connection = connect()
-    if connection.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone() is None:
-        connection.close()
-        raise HTTPException(404, "Không tìm thấy user")
-    rows = connection.execute("SELECT account_id, balance FROM accounts WHERE user_id = ?", (user_id,)).fetchall()
+    if use_firestore():
+        connection = None
+        if firestore_store().get_user(user_id) is None:
+            raise HTTPException(404, "Không tìm thấy user")
+        rows = firestore_store().list_accounts(user_id)
+    else:
+        connection = connect()
+        if connection.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone() is None:
+            connection.close()
+            raise HTTPException(404, "Không tìm thấy user")
+        rows = connection.execute("SELECT account_id, balance FROM accounts WHERE user_id = ?", (user_id,)).fetchall()
     add_event(connection, user_id, "VIEW_ACCOUNT", "account", "SUCCESS", {}, request_ip(request))
-    connection.commit()
-    connection.close()
+    if connection is not None:
+        connection.commit()
+        connection.close()
     return {"accounts": [dict(row) for row in rows]}
 
 
 @app.get("/api/beneficiaries/{account_id}")
 def beneficiary(account_id: str, authorization: str | None = Header(default=None)) -> dict[str, str]:
     get_current_user(authorization)
-    connection = connect()
-    row = connection.execute(
-        """SELECT accounts.account_id, users.full_name
-        FROM accounts JOIN users USING (user_id) WHERE accounts.account_id = ?""",
-        (account_id.strip(),),
-    ).fetchone()
-    connection.close()
+    if use_firestore():
+        row = firestore_store().get_beneficiary(account_id.strip())
+    else:
+        connection = connect()
+        row = connection.execute(
+            """SELECT accounts.account_id, users.full_name
+            FROM accounts JOIN users USING (user_id) WHERE accounts.account_id = ?""",
+            (account_id.strip(),),
+        ).fetchone()
+        connection.close()
     if row is None:
         raise HTTPException(404, "Không tìm thấy tài khoản thụ hưởng")
     return {
@@ -620,16 +821,21 @@ def transactions(
 ) -> dict[str, Any]:
     current_user = get_current_user(authorization)
     ensure_user_access(current_user, user_id)
-    connection = connect()
-    rows = connection.execute(
-        """SELECT * FROM transactions WHERE from_account IN
-        (SELECT account_id FROM accounts WHERE user_id = ?) OR to_account IN
-        (SELECT account_id FROM accounts WHERE user_id = ?) ORDER BY created_at DESC""",
-        (user_id, user_id),
-    ).fetchall()
+    if use_firestore():
+        connection = None
+        rows = firestore_store().list_user_transactions(user_id)
+    else:
+        connection = connect()
+        rows = connection.execute(
+            """SELECT * FROM transactions WHERE from_account IN
+            (SELECT account_id FROM accounts WHERE user_id = ?) OR to_account IN
+            (SELECT account_id FROM accounts WHERE user_id = ?) ORDER BY created_at DESC""",
+            (user_id, user_id),
+        ).fetchall()
     add_event(connection, user_id, "VIEW_TRANSACTION", "transactions", "SUCCESS", {}, request_ip(request))
-    connection.commit()
-    connection.close()
+    if connection is not None:
+        connection.commit()
+        connection.close()
     return {"transactions": [dict(row) for row in rows]}
 
 
@@ -645,6 +851,79 @@ def transfer(
         ensure_user_access(current_user, user_id)
     if not user_id or not target_id or not isinstance(amount, (int, float)) or amount <= 0:
         raise HTTPException(400, "userId, toAccount và amount hợp lệ là bắt buộc")
+    if use_firestore():
+        store = firestore_store()
+        accounts_for_user = store.list_accounts(user_id)
+        source = accounts_for_user[0] if accounts_for_user else None
+        target = store.get_account(target_id)
+        if source is None or target is None or float(source.get("balance", 0)) < amount:
+            raise HTTPException(400, "Tài khoản đích không tồn tại hoặc số dư không đủ")
+        if source["account_id"] == target_id:
+            raise HTTPException(400, "Không thể chuyển tiền vào tài khoản nguồn")
+        created_at = now()
+        transaction_id = store.reserve_id("transaction_id")
+        event_id = store.reserve_id("audit_event_id")
+        transaction_row = {
+            "transaction_id": transaction_id, "from_account": source["account_id"],
+            "to_account": target_id, "amount": amount, "status": "SUCCESS",
+            "created_at": created_at,
+        }
+        event = {
+            "eventId": event_id, "userId": user_id, "role": current_user["role"],
+            "action": "TRANSFER", "resource": target_id, "timestamp": created_at,
+            "sourceIp": request_ip(request) or "unknown", "result": "SUCCESS",
+            "riskLevel": "UNASSESSED", "dataHash": "", "hashVersion": 2,
+            "blockchainTxHash": None, "blockchainBlockNumber": None,
+            "blockchainLogIndex": None,
+            "details": {"transactionId": transaction_id, "amount": amount},
+        }
+        event["dataHash"] = event_data_hash(event)
+        stored_event = {
+            "event_id": event_id, "user_id": user_id, "role": event["role"],
+            "action": event["action"], "resource": event["resource"],
+            "timestamp": event["timestamp"], "source_ip": event["sourceIp"],
+            "result": event["result"], "risk_level": event["riskLevel"],
+            "data_hash": event["dataHash"], "hash_version": 2,
+            "blockchain_tx_hash": None, "blockchain_block_number": None,
+            "blockchain_log_index": None, "details": event["details"],
+        }
+        try:
+            store.transfer_atomic(
+                user_id=user_id, source_id=source["account_id"], target_id=target_id,
+                amount=amount, transaction_id=transaction_id,
+                transaction_row=transaction_row, event=stored_event,
+            )
+        except PermissionError as error:
+            raise HTTPException(403, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+
+        blockchain_warning = None
+        try:
+            chain_record = record_on_blockchain(event)
+        except Exception as error:
+            chain_record = None
+            blockchain_warning = f"Transfer succeeded, but the audit event remains off-chain: {error}"
+        if chain_record:
+            event.update({
+                "blockchainTxHash": chain_record["txHash"],
+                "blockchainBlockNumber": chain_record["blockNumber"],
+                "blockchainLogIndex": chain_record["logIndex"],
+            })
+            store.save_audit_event(event_id, {
+                "blockchain_tx_hash": event["blockchainTxHash"],
+                "blockchain_block_number": event["blockchainBlockNumber"],
+                "blockchain_log_index": event["blockchainLogIndex"],
+            })
+        if blockchain_warning:
+            event["blockchainWarning"] = blockchain_warning
+        return {
+            "transaction": {
+                "transactionId": transaction_id, "status": "SUCCESS",
+                "createdAt": created_at,
+            },
+            "audit": event,
+        }
     connection = connect()
     source = connection.execute("SELECT * FROM accounts WHERE user_id = ?", (user_id,)).fetchone()
     target = connection.execute("SELECT * FROM accounts WHERE account_id = ?", (target_id,)).fetchone()
@@ -684,6 +963,29 @@ def events(
     current_user = get_current_user(authorization)
     if current_user["role"] not in {"ADMIN", "STAFF", "AUDITOR"}:
         raise HTTPException(403, "Chỉ ADMIN, STAFF hoặc AUDITOR được xem audit logs")
+    if use_firestore():
+        records = [event_dict(row) for row in firestore_store().list_audit_events()]
+        if user_id:
+            records = [row for row in records if row["userId"] == user_id]
+        if role:
+            records = [row for row in records if row["role"] == role.upper()]
+        if action:
+            records = [row for row in records if row["action"] == action.upper()]
+        if from_time:
+            lower = normalize_filter_time(from_time)
+            records = [row for row in records if row["timestamp"] >= lower]
+        if to_time:
+            upper = normalize_filter_time(to_time)
+            records = [row for row in records if row["timestamp"] <= upper]
+        if blockchain_status == "recorded":
+            records = [row for row in records if row["blockchainTxHash"]]
+        elif blockchain_status == "offchain":
+            records = [row for row in records if not row["blockchainTxHash"]]
+        elif blockchain_status:
+            raise HTTPException(400, "blockchainStatus phải là recorded hoặc offchain")
+        records.sort(key=lambda row: row["timestamp"], reverse=True)
+        return {"count": len(records), "events": records, "logs": records}
+
     filters = []
     parameters: list[Any] = []
     for column, value in (
@@ -719,6 +1021,13 @@ def events(
 @app.get("/api/audit/my-logs")
 def my_audit_logs(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     current_user = get_current_user(authorization)
+    if use_firestore():
+        records = [
+            event_dict(row) for row in firestore_store().list_audit_events()
+            if row.get("user_id") == current_user["user_id"]
+        ]
+        records.sort(key=lambda row: row["timestamp"], reverse=True)
+        return {"count": len(records), "events": records}
     connection = connect()
     rows = connection.execute(
         "SELECT * FROM audit_events WHERE user_id = ? ORDER BY timestamp DESC",
@@ -735,6 +1044,13 @@ def audit_detail(
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     current_user = get_current_user(authorization)
+    if use_firestore():
+        row = firestore_store().get_audit_event(event_id)
+        if row is None:
+            raise HTTPException(404, "Không tìm thấy Audit Event")
+        if current_user["role"] not in {"ADMIN", "STAFF", "AUDITOR"} and row["user_id"] != current_user["user_id"]:
+            raise HTTPException(403, "Không có quyền xem Audit Event này")
+        return {"event": event_dict(row)}
     connection = connect()
     row = connection.execute(
         "SELECT * FROM audit_events WHERE event_id = ?", (event_id,)
@@ -756,14 +1072,17 @@ def verify_integrity(
     if current_user["role"] not in {"ADMIN", "STAFF", "AUDITOR", "CUSTOMER"}:
         raise HTTPException(403, "Không có quyền xác minh audit")
     event_id = payload.get("eventId")
-    connection = connect()
-    row = connection.execute("SELECT * FROM audit_events WHERE event_id = ?", (event_id,)).fetchone()
-    connection.close()
+    if use_firestore():
+        row = firestore_store().get_audit_event(int(event_id)) if event_id is not None else None
+    else:
+        connection = connect()
+        row = connection.execute("SELECT * FROM audit_events WHERE event_id = ?", (event_id,)).fetchone()
+        connection.close()
     if row is None:
         return {"verified": False, "message": "Không tìm thấy Audit Event"}
     if current_user["role"] == "CUSTOMER" and row["user_id"] != current_user["user_id"]:
         raise HTTPException(403, "Không có quyền xác minh Audit Event của tài khoản khác")
-    details = json.loads(row["details"])
+    details = row["details"] if isinstance(row["details"], dict) else json.loads(row["details"])
     if row["hash_version"] >= 2:
         recalculated_hash = event_data_hash(event_dict(row))
     else:
@@ -800,3 +1119,14 @@ def verify_integrity(
         "onChainVerified": on_chain_match,
         "event": event_dict(row),
     }
+
+
+# Wrap the complete FastAPI app so CORS headers are also added to unhandled
+# error responses. Otherwise browsers hide a server-side 500 as "Failed to fetch".
+app = CORSMiddleware(
+    app=app,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

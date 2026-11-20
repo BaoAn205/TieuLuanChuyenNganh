@@ -69,7 +69,7 @@
           <form id="loginForm" class="form-grid">
             <label>
               User ID
-              <input id="userId" value="customer-001" required />
+              <input id="userId" autocomplete="username" required />
             </label>
             <label>
               Password
@@ -78,7 +78,7 @@
             <button class="primary-button wide" type="submit">Sign in and log activity</button>
           </form>
 
-          <div id="loginHint" class="login-hint">Demo account: customer-001. Connect its assigned local wallet.</div>
+          <div id="loginHint" class="login-hint">Enter the user ID and password created for your account, then connect its assigned wallet.</div>
           <div id="loginStatus" class="status" aria-live="polite"></div>
         </div>
       </section>
@@ -138,7 +138,7 @@
               </div>
               <label>
                 Recipient account number
-                <input id="toAccount" value="ACC-2002" autocomplete="off" inputmode="text" required />
+                <input id="toAccount" autocomplete="off" inputmode="text" required />
               </label>
               <div id="recipientPreview" class="recipient-preview" aria-live="polite">Enter an account number to verify the recipient.</div>
               <label>
@@ -161,7 +161,7 @@
               <table>
                 <thead>
                   <tr>
-                    <th>ID</th>
+                    <th>No.</th>
                     <th>From</th>
                     <th>To</th>
                     <th>Amount</th>
@@ -225,6 +225,20 @@
             <span class="status-pill">Privileged access</span>
           </div>
           <p>Monitor access activity and verify audit evidence against the local blockchain.</p>
+        </div>
+
+        <div class="panel admin-logs">
+          <div class="section-head"><div><h3>Create customer</h3><p>Creates a user and account, hashes the password, and grants CUSTOMER on-chain when blockchain mode is enabled.</p></div></div>
+          <form id="createCustomerForm" class="form-grid">
+            <label>User ID<input id="newCustomerUserId" required maxlength="64" placeholder="New customer ID" /></label>
+            <label>Full name<input id="newCustomerName" required maxlength="100" /></label>
+            <label>Password<input id="newCustomerPassword" type="password" required minlength="8" autocomplete="new-password" /></label>
+            <label>Wallet address<input id="newCustomerWallet" required placeholder="0x..." /></label>
+            <label>Account ID<input id="newCustomerAccount" required placeholder="New account ID" /></label>
+            <label>Opening balance (VND)<input id="newCustomerBalance" type="number" min="0" step="1" value="0" required /></label>
+            <button class="primary-button" type="submit">Create customer</button>
+          </form>
+          <div id="createCustomerStatus" class="status" aria-live="polite"></div>
         </div>
 
         <div class="panel admin-logs">
@@ -292,6 +306,6 @@
   </dialog>
 
   <script src="js/wallet.js?v=wallet-1"></script>
-  <script src="js/app.js?v=phase1-4"></script>
+  <script src="js/app.js?v=phase1-6"></script>
 </body>
 </html>

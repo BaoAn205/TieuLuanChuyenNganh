@@ -100,11 +100,28 @@ def deployed_contract(local_chain):
 def client(tmp_path, monkeypatch, local_chain, deployed_contract):
     _, rpc_url = local_chain
     monkeypatch.setattr(main, "DB_PATH", tmp_path / "integration.db")
+    monkeypatch.setattr(main, "DATABASE_BACKEND", "sqlite")
     monkeypatch.setattr(main, "BLOCKCHAIN_ENABLED", True)
     monkeypatch.setattr(main, "BLOCKCHAIN_RPC_URL", rpc_url)
     monkeypatch.setattr(main, "BLOCKCHAIN_CONTRACT_ADDRESS", deployed_contract)
     monkeypatch.setattr(main, "BLOCKCHAIN_PRIVATE_KEY", TEST_PRIVATE_KEY)
     with TestClient(main.app) as test_client:
+        connection = main.connect()
+        connection.executemany(
+            "INSERT INTO users (user_id, full_name, role, password, wallet_address) VALUES (?, ?, ?, ?, ?)",
+            [
+                ("admin-001", "System Administrator", "ADMIN", "admin123", DEMO_WALLETS["admin-001"]),
+                ("staff-001", "Bank Staff", "STAFF", "staff123", DEMO_WALLETS["staff-001"]),
+                ("auditor-001", "Audit Officer", "AUDITOR", "audit123", DEMO_WALLETS["auditor-001"]),
+                ("customer-001", "Demo Customer", "CUSTOMER", "customer123", DEMO_WALLETS["customer-001"]),
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO accounts (account_id, user_id, balance) VALUES (?, ?, ?)",
+            [("ACC-1001", "customer-001", 10000), ("ACC-2002", "staff-001", 0)],
+        )
+        connection.commit()
+        connection.close()
         yield test_client
 
 

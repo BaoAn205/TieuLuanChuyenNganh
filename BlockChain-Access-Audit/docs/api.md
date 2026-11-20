@@ -15,6 +15,7 @@ Base URL: `http://127.0.0.1:8000`. Protected endpoints require `Authorization: B
 | `GET` | `/api/transactions/{user_id}` | Own user; ADMIN/STAFF may access another user | Return simulated transactions, audit `VIEW_TRANSACTION` |
 | `POST` | `/api/transactions/transfer` | Authenticated | Simulate an internal transfer and audit `TRANSFER` |
 | `POST` | `/api/admin/access` | ADMIN only | Audit `ADMIN_ACCESS` |
+| `POST` | `/api/admin/customers` | ADMIN only | Create customer and account; hash password and grant on-chain role when enabled |
 | `GET` | `/api/me` | Authenticated | Restore current user/role after frontend reload |
 | `GET` | `/api/audit/my-logs` | Authenticated | Return only events owned by current user |
 | `GET` | `/api/audit/logs?userId=&role=&action=&from=&to=&blockchainStatus=` | ADMIN/STAFF/AUDITOR | Filter audit list by owner, role, action, time range, and chain status |
@@ -27,13 +28,13 @@ Base URL: `http://127.0.0.1:8000`. Protected endpoints require `Authorization: B
 Login:
 
 ```json
-{"userId":"customer-001","password":"customer123","walletAddress":"0x..."}
+{"userId":"<Firestore user ID>","password":"<password>","walletAddress":"0x..."}
 ```
 
 Transfer:
 
 ```json
-{"userId":"customer-001","toAccount":"ACC-2002","amount":1000}
+{"userId":"<signed-in user ID>","toAccount":"<recipient account ID>","amount":1000}
 ```
 
 Verify:

@@ -1,27 +1,41 @@
-# Backend Integration and Tamper Demo
+﻿# Backend Integration and Tamper Demo
 
 ## Run the integration tests
 
-The tests use a temporary SQLite database, start a local Hardhat node, deploy a fresh contract, and exercise the API through FastAPI's test client. They do not alter `database.db`.
+The integration suite uses a temporary SQLite database and a local Ganache chain. The test fixture explicitly selects SQLite, so these tests do not access the Firestore project or change `database.db`.
 
-From this directory, install the development dependencies and run:
+From this directory:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m pytest -v tests\test_integration.py
+.\.venv-firestore\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv-firestore\Scripts\python.exe -m pytest -v tests\test_integration.py
 ```
 
 The tests require Node.js/npm and the blockchain module's installed npm dependencies.
 
-## Run the tamper-detection demo
+## Firestore backend
 
-1. Start Hardhat locally, deploy `AccessAndAudit`, configure `BLOCKCHAIN_ENABLED=true`, `BLOCKCHAIN_RPC_URL`, `BLOCKCHAIN_CONTRACT_ADDRESS`, and `BLOCKCHAIN_PRIVATE_KEY`, then start the FastAPI backend.
-2. In the banking page, sign in as `customer-001` / `customer123` and view the account or submit a transfer. The backend saves the audit row and its transaction hash.
-3. Open `audit.html`, sign in as `auditor-001` / `audit123`, and press **Verify Integrity** on the event. The status should report that the hash matches the blockchain.
-4. From this directory, deliberately alter that event's `resource` in the demo database:
+The application defaults to Cloud Firestore. It does not create users or accounts at startup. Create the initial administrator record in Firestore; administrators can create customer users and accounts from the Admin workspace. Customer passwords are hashed by the API before storage, and the API grants their on-chain role when blockchain mode is enabled. In the PowerShell window used to start FastAPI, set the Admin SDK credential path and Firebase project ID:
 
 ```powershell
-.\.venv\Scripts\python.exe .\tamper_data.py --event-id 1 --resource /admin/secrets --confirm
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\path\to\firebase-service-account.json"
+$env:GOOGLE_CLOUD_PROJECT = "your-firebase-project-id"
 ```
 
-Replace `1` with the event ID shown by the dashboard. Press **Verify Integrity** again; the dashboard should show a red tampering warning. This script intentionally changes the selected SQLite row, so use it only with demo data. Set `AUDIT_DB_PATH` or pass `--database` to select a different database.
+Then start the API:
+
+```powershell
+.\.venv-firestore\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Keep the service-account JSON outside the Git repository and never put it in frontend files. The backend uses Firebase Admin SDK, so Firestore security rules do not authenticate these server-side requests; protect the service-account key.
+
+## Demonstrate audit tampering
+
+Use a demo event ID displayed in the Audit Dashboard. This deliberately changes a record in Cloud Firestore without updating its hash:
+
+```powershell
+.\.venv-firestore\Scripts\python.exe .\tamper_data.py --event-id EVENT_ID --confirm
+```
+
+Verify the same event again in the dashboard; integrity verification should report a mismatch. This command modifies Firestore data, so use it only with a demo event.
