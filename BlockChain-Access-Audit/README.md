@@ -1,14 +1,14 @@
-﻿# Blockchain Access Audit
+# Blockchain Access Audit
 
-Prototype Web Banking mô phỏng để ghi nhận hoạt động truy cập, lưu Audit Event trên Firebase Cloud Firestore và ghi bằng chứng toàn vẹn lên Ethereum local.
+Prototype Web Banking mô phỏng: FastAPI lưu dữ liệu ứng dụng trong PostgreSQL; Ethereum local lưu bằng chứng hash cho các audit event quan trọng.
 
 ## Phạm vi
 
-- Đăng nhập theo các role `ADMIN`, `STAFF`, `AUDITOR`, `CUSTOMER`.
+- Đăng nhập theo role `ADMIN`, `STAFF`, `AUDITOR`, `CUSTOMER`.
 - Mô phỏng xem tài khoản, giao dịch và chuyển tiền nội bộ.
-- Ghi Audit Event off-chain; dùng SHA-256 để phát hiện chỉnh sửa.
-- Ghi event/hash lên smart contract và xem transaction hash trên Audit Dashboard.
-- Không kết nối ngân hàng/thanh toán thật, không dùng cryptocurrency và chưa có AI Agent.
+- Audit event off-chain được lưu PostgreSQL và kiểm tra bằng SHA-256.
+- `TRANSFER`, `CHANGE_PROFILE`, `ADMIN_ACCESS` có thể được neo lên smart contract.
+- Không kết nối ngân hàng/thanh toán thật.
 
 ## Công nghệ
 
@@ -16,17 +16,14 @@ Prototype Web Banking mô phỏng để ghi nhận hoạt động truy cập, l�
 | --- | --- |
 | Frontend | HTML, CSS, JavaScript |
 | API | FastAPI, Python, Web3.py |
-| Database | Firebase Cloud Firestore (SQLite chỉ dùng trong integration tests) |
-| Contract | Solidity, Hardhat, Ethers.js (deploy/test tooling) |
-| Local chain | Ganache (JSON-RPC `127.0.0.1:8546`) |
-| Wallet | MetaMask (EIP-1193 provider) |
+| Database | PostgreSQL |
+| Contract | Solidity, Hardhat, Ethers.js |
+| Local chain | Ganache (`127.0.0.1:8546`) |
 | Integrity | SHA-256 |
 
-Hardhat dùng để compile, deploy và test contract; Ganache cung cấp local JSON-RPC node cho demo. Backend gửi transaction bằng Web3.py.
+## Chạy trên Windows
 
-## Chạy demo trên Windows
-
-### 1. Chạy local blockchain
+### 1. Khởi động blockchain và deploy contract
 
 ```powershell
 cd BlockChain-Access-Audit\blockchain
@@ -34,70 +31,62 @@ npm install
 npm run node:ganache
 ```
 
-Giữ terminal này chạy. Ganache in các tài khoản và private key demo để kết nối MetaMask và backend local.
-
-### 2. Deploy contract
-
-Mở terminal mới:
+Terminal khác:
 
 ```powershell
 cd BlockChain-Access-Audit\blockchain
 npm run deploy:local
 ```
 
-Ghi lại địa chỉ sau `AccessAndAudit deployed to:`. Deployer (account 0) là ADMIN. Gán role bổ sung qua cấu hình `INITIAL_ROLE_ASSIGNMENTS` hoặc tạo customer từ Admin UI.
+Ghi lại địa chỉ `AccessAndAudit deployed to:`.
 
-### 3. Chạy API
+### 2. Tạo PostgreSQL database
 
-Mở terminal mới. Đặt Firebase credential path và project ID; giữ file JSON bên ngoài repository:
+Cài PostgreSQL 15+, rồi trong `psql -U postgres` chạy:
+
+```sql
+CREATE USER audit_app WITH PASSWORD 'thay-bang-mat-khau-manh';
+CREATE DATABASE access_audit OWNER audit_app;
+```
+
+### 3. Cài và chạy API
 
 ```powershell
 cd BlockChain-Access-Audit\backend
-$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\path\to\firebase-service-account.json"
-$env:GOOGLE_CLOUD_PROJECT = "your-firebase-project-id"
-py -3.13 -m venv .venv-firestore
-.\.venv-firestore\Scripts\python.exe -m pip install -r requirements.txt
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:DATABASE_URL = "postgresql://audit_app:mat-khau-cua-ban@127.0.0.1:5432/access_audit"
 $env:BLOCKCHAIN_ENABLED = "true"
 $env:BLOCKCHAIN_RPC_URL = "http://127.0.0.1:8546"
 $env:BLOCKCHAIN_CONTRACT_ADDRESS = "0xYOUR_DEPLOYED_CONTRACT"
 $env:BLOCKCHAIN_PRIVATE_KEY = "0xYOUR_LOCAL_GANACHE_PRIVATE_KEY"
-.\.venv-firestore\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Backend dùng Firestore theo mặc định. Các biến môi trường cần được đặt trong cùng cửa sổ PowerShell khởi động API.
+Backend tạo bảng PostgreSQL tự động. Đặt biến môi trường trong cùng terminal chạy Uvicorn. API health check: `http://127.0.0.1:8000/health`; Swagger: `http://127.0.0.1:8000/docs`.
 
-### 4. Cấu hình MetaMask và mở giao diện
+### 4. Tạo tài khoản ADMIN và mở giao diện
 
-Thêm mạng MetaMask `Ganache Local`, RPC `http://127.0.0.1:8546`, chain ID `31337`, đơn vị `ETH`. Chỉ dùng private key Ganache cho local demo.
+Backend không tạo tài khoản mặc định. Cách tạo hash và thêm admin vào DB nằm trong [hướng dẫn backend](backend/README.md#tạo-tài-khoản-quản-trị-đầu-tiên). Ví admin cần được gán role ADMIN trong contract khi bật blockchain.
 
-Mở `frontend/index.html` bằng **Open with Live Server**. User, account và wallet được đọc từ Firestore; giao diện không tự điền user ID hoặc tài khoản người nhận. Đăng nhập bằng tài khoản đã provision trong Firebase. Admin có thể tạo customer và account từ form **Create customer** trong Admin workspace. Nếu blockchain bật, backend cấp role `CUSTOMER` cho ví mới bằng signer được cấu hình. Mở `frontend/audit.html` để vào Audit Dashboard. API health check: `http://127.0.0.1:8000/health`.
+Thêm mạng MetaMask `Ganache Local` (RPC `http://127.0.0.1:8546`, chain ID `31337`), rồi mở `frontend/index.html` bằng **Open with Live Server**. Dùng Admin workspace để tạo customer và account. Audit Dashboard ở `frontend/audit.html`.
 
-### 5. Chạy tests
+### 5. Tests và tamper demo
 
 ```powershell
 cd BlockChain-Access-Audit\blockchain
 npm test
 cd ..\backend
-.\.venv-firestore\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv-firestore\Scripts\python.exe -m pytest tests -q
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-Integration tests dùng SQLite tạm và không kết nối Firestore.
-
-### 6. Demo tamper detection
-
-Chọn event demo trong Audit Dashboard, sau đó chạy lệnh dưới đây trong terminal backend. Lệnh cố ý sửa Firestore mà không cập nhật hash:
-
-```powershell
-.\.venv-firestore\Scripts\python.exe tamper_data.py --event-id EVENT_ID --confirm
-```
-
-Verify lại event trong dashboard để xem cảnh báo mismatch. Chỉ dùng với dữ liệu demo.
+Integration tests cần PostgreSQL; đặt `POSTGRES_TEST_DATABASE_URL` trỏ tới database test riêng. Fixture sẽ xóa dữ liệu trong database này trước mỗi lượt. Để cố ý sửa audit row trong dữ liệu demo, xem lệnh tamper trong [hướng dẫn backend](backend/README.md#tamper-detection-demo).
 
 ## Tài liệu
 
 - [Kiến trúc hệ thống](docs/architecture.md)
 - [API contract](docs/api.md)
 - [Smart contract handover](docs/contract.md)
-- [Test evidence và demo còn chờ](docs/test-evidence.md)
-- [Hướng dẫn backend và Firestore](backend/README.md)
+- [Test evidence](docs/test-evidence.md)
+- [Hướng dẫn backend/PostgreSQL](backend/README.md)

@@ -28,7 +28,7 @@ Base URL: `http://127.0.0.1:8000`. Protected endpoints require `Authorization: B
 Login:
 
 ```json
-{"userId":"<Firestore user ID>","password":"<password>","walletAddress":"0x..."}
+{"userId":"<PostgreSQL user ID>","password":"<password>","walletAddress":"0x..."}
 ```
 
 Transfer:

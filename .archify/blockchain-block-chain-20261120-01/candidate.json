@@ -71,15 +71,15 @@
       ]
     },
     {
-      "id": "firestore",
-      "type": "cloud",
-      "label": "Firebase Firestore",
+      "id": "postgresql",
+      "type": "database",
+      "label": "PostgreSQL",
       "sublabel": "off-chain user, account, transaction, audit rows",
-      "tag": "separate store",
+      "tag": "application database",
       "pos": [790, 445],
       "size": [230, 86],
       "sources": [
-        { "path": "BlockChain-Access-Audit/backend/app/main.py", "line": 403, "end_line": 435, "label": "save audit row" }
+        { "path": "BlockChain-Access-Audit/backend/app/main.py", "line": 426, "end_line": 481, "label": "save audit row" }
       ]
     }
   ],
@@ -88,7 +88,7 @@
     { "from": "current-block", "to": "next-block", "label": "parent hash link", "variant": "emphasis" },
     { "from": "audit-transaction", "to": "current-block", "label": "included in block", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
     { "from": "audit-transaction", "to": "contract-event", "label": "calls contract; emits event", "variant": "security" },
-    { "from": "audit-transaction", "to": "firestore", "label": "stores tx hash, block number, log index", "variant": "dashed", "route": "orthogonal-h" }
+    { "from": "audit-transaction", "to": "postgresql", "label": "stores tx hash, block number, log index", "variant": "dashed", "route": "orthogonal-h" }
   ],
   "cards": [
     {
@@ -105,7 +105,7 @@
       "title": "What this project stores",
       "items": [
         "The contract stores event ID, user ID hash, action, resource, timestamp, result, data hash and actor.",
-        "Firestore keeps the full application data and a pointer to the on-chain transaction/block.",
+        "PostgreSQL keeps full application data and a pointer to the on-chain transaction/block.",
         "This diagram shows the storage relationship; it does not read live Ganache blocks."
       ]
     }

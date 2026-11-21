@@ -99,14 +99,17 @@ def deployed_contract(local_chain):
 @pytest.fixture
 def client(tmp_path, monkeypatch, local_chain, deployed_contract):
     _, rpc_url = local_chain
-    monkeypatch.setattr(main, "DB_PATH", tmp_path / "integration.db")
-    monkeypatch.setattr(main, "DATABASE_BACKEND", "sqlite")
+    test_database_url = os.getenv("POSTGRES_TEST_DATABASE_URL")
+    if not test_database_url:
+        pytest.skip("Set POSTGRES_TEST_DATABASE_URL to a dedicated PostgreSQL test database")
+    monkeypatch.setattr(main, "DATABASE_URL", test_database_url)
     monkeypatch.setattr(main, "BLOCKCHAIN_ENABLED", True)
     monkeypatch.setattr(main, "BLOCKCHAIN_RPC_URL", rpc_url)
     monkeypatch.setattr(main, "BLOCKCHAIN_CONTRACT_ADDRESS", deployed_contract)
     monkeypatch.setattr(main, "BLOCKCHAIN_PRIVATE_KEY", TEST_PRIVATE_KEY)
     with TestClient(main.app) as test_client:
         connection = main.connect()
+        connection.execute("TRUNCATE audit_events, transactions, sessions, accounts, users RESTART IDENTITY CASCADE")
         connection.executemany(
             "INSERT INTO users (user_id, full_name, role, password, wallet_address) VALUES (?, ?, ?, ?, ?)",
             [
@@ -356,7 +359,7 @@ def test_login_rejects_wallet_without_required_contract_role(client, local_chain
     assert "Wallet role" in response.json()["detail"]
 
 
-def test_sqlite_tampering_is_detected_against_chain(client):
+def test_postgresql_tampering_is_detected_against_chain(client):
     customer = login(client, "customer-001", "customer123")
     headers = {"Authorization": f"Bearer {customer['sessionToken']}"}
     client.get("/api/accounts/customer-001", headers=headers)

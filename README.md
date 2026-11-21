@@ -1,29 +1,5 @@
-﻿# TieuLuanChuyenNganh
- 
-```
-blockchain-access-audit/          <-- Đây là 1 Git Repo duy nhất (git init ở đây)
-├── .gitignore
-├── README.md
-│
-├── blockchain/                   <-- Module 1: Solidity Smart Contract
-│   ├── contracts/
-│   │   └── AccessAndAudit.sol    <-- Mã nguồn Solidity
-│   ├── scripts/
-│   │   └── deploy.js             <-- Script deploy lên Ganache
-│   ├── package.json              <-- Quản lý Hardhat, Ethers.js
-│   └── hardhat.config.js
-│
-├── backend/                      <-- Module 2: Web API & AI Agent
-│   ├── app/
-│   │   ├── main.py               <-- FastAPI Backend
-│   │   ├── ai_agent.py           <-- Python AI Agent giám sát real-time
-│   │   └── crypto_utils.py       <-- Hàm mã hóa AES & tính SHA-256
-│   ├── requirements.txt          <-- Cài web3.py, fastapi, uvicorn
-│   └── database.db               <-- SQLite database local
-│
-└── frontend/                     <-- Module 3: Web UI Ngân hàng / Audit Dashboard
-    ├── index.html                <-- Giao diện người dùng
-    ├── audit.html                <-- Giao diện Verify Integrity
-    └── js/
-        └── app.js                <-- Tương tác Web3 & MetaMask
-```
+# Tiểu luận chuyên ngành — Blockchain Access Audit
+
+Mã nguồn dự án nằm trong [`BlockChain-Access-Audit`](BlockChain-Access-Audit/README.md). Ứng dụng gồm frontend HTML/JavaScript, API FastAPI, PostgreSQL làm database off-chain và smart contract Solidity để neo hash audit trên local Ethereum/Ganache.
+
+Bắt đầu bằng hướng dẫn chạy Windows trong [README dự án](BlockChain-Access-Audit/README.md). Cấu hình PostgreSQL, tạo admin và chuyển dữ liệu hiện có được mô tả trong [Backend README](BlockChain-Access-Audit/backend/README.md).

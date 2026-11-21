@@ -1,6 +1,6 @@
 node_modules/
 .env
 backend/.venv/
-backend/database.db
+backend/.venv-migrate/
 **/__pycache__/
 *.py[cod]
