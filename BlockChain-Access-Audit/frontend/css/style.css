@@ -158,6 +158,13 @@ button {
   gap: 12px;
 }
 
+.topbar-actions .portal-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .primary-button,
 .ghost-button {
   border: none;
@@ -783,7 +790,8 @@ th {
     width: 100%;
   }
 
-  .topbar-actions button {
+  .topbar-actions button,
+  .topbar-actions .portal-link {
     flex: 1;
   }
 
