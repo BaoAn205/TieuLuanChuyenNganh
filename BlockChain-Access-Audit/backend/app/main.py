@@ -1,6 +1,7 @@
 import json
 import hashlib
 import hmac
+import math
 import os
 import secrets
 import sqlite3
@@ -194,6 +195,13 @@ def init_db() -> None:
             amount REAL NOT NULL,
             status TEXT NOT NULL,
             created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS transfer_requests (
+            idempotency_key TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            transaction_id INTEGER NOT NULL,
+            event_id INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS audit_events (
             event_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -839,11 +847,48 @@ def transactions(
     return {"transactions": [dict(row) for row in rows]}
 
 
+def transfer_request_hash(user_id: str, source_id: str, target_id: str, amount: float) -> str:
+    return sha256(json.dumps(
+        [user_id, source_id, target_id, float(amount)], separators=(",", ":")
+    ))
+
+
+def transfer_replay_response(
+    transaction_id: int,
+    event_id: int,
+    *,
+    store: Any = None,
+    connection: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    if store is not None:
+        transaction_record = store.get_transaction(transaction_id)
+        audit_record = store.get_audit_event(event_id)
+    else:
+        transaction_record = connection.execute(
+            "SELECT * FROM transactions WHERE transaction_id = ?", (transaction_id,)
+        ).fetchone()
+        audit_record = connection.execute(
+            "SELECT * FROM audit_events WHERE event_id = ?", (event_id,)
+        ).fetchone()
+    if transaction_record is None or audit_record is None:
+        raise HTTPException(500, "Stored idempotent transfer result is incomplete")
+    return {
+        "transaction": {
+            "transactionId": transaction_id,
+            "status": transaction_record["status"],
+            "createdAt": transaction_record["created_at"],
+        },
+        "audit": event_dict(audit_record),
+        "idempotentReplay": True,
+    }
+
+
 @app.post("/api/transactions/transfer")
 def transfer(
     payload: dict[str, Any],
     request: Request,
     authorization: str | None = Header(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict[str, Any]:
     user_id, target_id, amount = payload.get("userId"), payload.get("toAccount"), payload.get("amount")
     current_user = get_current_user(authorization)
@@ -851,18 +896,30 @@ def transfer(
         ensure_user_access(current_user, user_id)
     if not user_id or not target_id or not isinstance(amount, (int, float)) or amount <= 0:
         raise HTTPException(400, "userId, toAccount và amount hợp lệ là bắt buộc")
+    if not idempotency_key or not 16 <= len(idempotency_key) <= 128:
+        raise HTTPException(400, "A 16–128 character Idempotency-Key header is required")
+    idempotency_doc_id = sha256(f"{current_user['user_id']}:{idempotency_key}")
     if use_firestore():
         store = firestore_store()
         accounts_for_user = store.list_accounts(user_id)
         source = accounts_for_user[0] if accounts_for_user else None
         target = store.get_account(target_id)
-        if source is None or target is None or float(source.get("balance", 0)) < amount:
-            raise HTTPException(400, "Tài khoản đích không tồn tại hoặc số dư không đủ")
+        if source is None or target is None:
+            raise HTTPException(400, "Source or destination account does not exist")
         if source["account_id"] == target_id:
             raise HTTPException(400, "Không thể chuyển tiền vào tài khoản nguồn")
+        request_hash = transfer_request_hash(current_user["user_id"], source["account_id"], target_id, amount)
+        existing_request = store.get_transfer_request(idempotency_doc_id)
+        if existing_request:
+            if existing_request.get("request_hash") != request_hash:
+                raise HTTPException(409, "Idempotency-Key was already used for a different transfer")
+            return transfer_replay_response(
+                int(existing_request["transaction_id"]), int(existing_request["event_id"]), store=store
+            )
         created_at = now()
-        transaction_id = store.reserve_id("transaction_id")
-        event_id = store.reserve_id("audit_event_id")
+        reserved_ids = store.reserve_ids("transaction_id", "audit_event_id")
+        transaction_id = reserved_ids["transaction_id"]
+        event_id = reserved_ids["audit_event_id"]
         transaction_row = {
             "transaction_id": transaction_id, "from_account": source["account_id"],
             "to_account": target_id, "amount": amount, "status": "SUCCESS",
@@ -875,7 +932,22 @@ def transfer(
             "riskLevel": "UNASSESSED", "dataHash": "", "hashVersion": 2,
             "blockchainTxHash": None, "blockchainBlockNumber": None,
             "blockchainLogIndex": None,
-            "details": {"transactionId": transaction_id, "amount": amount},
+            "details": {
+                "transactionId": transaction_id,
+                "amount": amount,
+                "balanceSnapshots": [
+                    {
+                        "accountId": source["account_id"],
+                        "before": float(source.get("balance", 0)),
+                        "after": float(source.get("balance", 0)) - amount,
+                    },
+                    {
+                        "accountId": target_id,
+                        "before": float(target.get("balance", 0)),
+                        "after": float(target.get("balance", 0)) + amount,
+                    },
+                ],
+            },
         }
         event["dataHash"] = event_data_hash(event)
         stored_event = {
@@ -888,15 +960,25 @@ def transfer(
             "blockchain_log_index": None, "details": event["details"],
         }
         try:
-            store.transfer_atomic(
+            atomic_result = store.transfer_atomic(
                 user_id=user_id, source_id=source["account_id"], target_id=target_id,
-                amount=amount, transaction_id=transaction_id,
+                amount=amount,
+                expected_source_balance=float(source.get("balance", 0)),
+                expected_target_balance=float(target.get("balance", 0)),
+                transaction_id=transaction_id,
                 transaction_row=transaction_row, event=stored_event,
+                idempotency_key=idempotency_doc_id, request_hash=request_hash,
             )
         except PermissionError as error:
             raise HTTPException(403, str(error)) from error
         except ValueError as error:
-            raise HTTPException(400, str(error)) from error
+            status_code = 409 if "idempotency key" in str(error).lower() else 400
+            raise HTTPException(status_code, str(error)) from error
+
+        if atomic_result["duplicate"]:
+            return transfer_replay_response(
+                atomic_result["transaction_id"], atomic_result["event_id"], store=store
+            )
 
         blockchain_warning = None
         try:
@@ -925,14 +1007,33 @@ def transfer(
             "audit": event,
         }
     connection = connect()
+    connection.execute("BEGIN IMMEDIATE")
     source = connection.execute("SELECT * FROM accounts WHERE user_id = ?", (user_id,)).fetchone()
     target = connection.execute("SELECT * FROM accounts WHERE account_id = ?", (target_id,)).fetchone()
-    if source is None or target is None or source["balance"] < amount:
+    if source is None or target is None:
         connection.close()
         raise HTTPException(400, "Tài khoản đích không tồn tại hoặc số dư không đủ")
     if source["account_id"] == target_id:
         connection.close()
         raise HTTPException(400, "Không thể chuyển tiền vào tài khoản nguồn")
+    request_hash = transfer_request_hash(current_user["user_id"], source["account_id"], target_id, amount)
+    existing_request = connection.execute(
+        "SELECT * FROM transfer_requests WHERE idempotency_key = ?", (idempotency_doc_id,)
+    ).fetchone()
+    if existing_request:
+        if existing_request["request_hash"] != request_hash:
+            connection.rollback()
+            connection.close()
+            raise HTTPException(409, "Idempotency-Key was already used for a different transfer")
+        response = transfer_replay_response(
+            existing_request["transaction_id"], existing_request["event_id"], connection=connection
+        )
+        connection.close()
+        return response
+    if source["balance"] < amount:
+        connection.rollback()
+        connection.close()
+        raise HTTPException(400, "Insufficient balance")
     created_at = now()
     connection.execute("UPDATE accounts SET balance = balance - ? WHERE account_id = ?", (amount, source["account_id"]))
     connection.execute("UPDATE accounts SET balance = balance + ? WHERE account_id = ?", (amount, target_id))
@@ -943,6 +1044,11 @@ def transfer(
     audit = add_event(
         connection, user_id, "TRANSFER", target_id, "SUCCESS",
         {"transactionId": cursor.lastrowid, "amount": amount}, request_ip(request),
+    )
+    connection.execute(
+        "INSERT INTO transfer_requests (idempotency_key, user_id, request_hash, transaction_id, event_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (idempotency_doc_id, current_user["user_id"], request_hash, cursor.lastrowid, audit["eventId"]),
     )
     connection.commit()
     connection.close()
@@ -959,12 +1065,15 @@ def events(
     from_time: str | None = Query(default=None, alias="from"),
     to_time: str | None = Query(default=None, alias="to"),
     blockchain_status: str | None = Query(default=None, alias="blockchainStatus"),
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: int | None = Query(default=None, ge=1),
 ) -> dict[str, Any]:
     current_user = get_current_user(authorization)
     if current_user["role"] not in {"ADMIN", "STAFF", "AUDITOR"}:
         raise HTTPException(403, "Chỉ ADMIN, STAFF hoặc AUDITOR được xem audit logs")
     if use_firestore():
-        records = [event_dict(row) for row in firestore_store().list_audit_events()]
+        stored_records, next_cursor = firestore_store().list_audit_events(limit=limit, cursor=cursor)
+        records = [event_dict(row) for row in stored_records]
         if user_id:
             records = [row for row in records if row["userId"] == user_id]
         if role:
@@ -983,8 +1092,7 @@ def events(
             records = [row for row in records if not row["blockchainTxHash"]]
         elif blockchain_status:
             raise HTTPException(400, "blockchainStatus phải là recorded hoặc offchain")
-        records.sort(key=lambda row: row["timestamp"], reverse=True)
-        return {"count": len(records), "events": records, "logs": records}
+        return {"count": len(records), "events": records, "logs": records, "nextCursor": next_cursor}
 
     filters = []
     parameters: list[Any] = []
@@ -1007,35 +1115,43 @@ def events(
         filters.append("blockchain_tx_hash IS NULL")
     elif blockchain_status:
         raise HTTPException(400, "blockchainStatus phải là recorded hoặc offchain")
+    if cursor is not None:
+        filters.append("event_id < ?")
+        parameters.append(cursor)
     where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
     connection = connect()
     rows = connection.execute(
-        f"SELECT * FROM audit_events {where_clause} ORDER BY timestamp DESC",
-        parameters,
+        f"SELECT * FROM audit_events {where_clause} ORDER BY event_id DESC LIMIT ?",
+        [*parameters, limit],
     ).fetchall()
     connection.close()
     records = [event_dict(row) for row in rows]
-    return {"count": len(records), "events": records, "logs": records}
+    next_cursor = records[-1]["eventId"] if len(records) == limit else None
+    return {"count": len(records), "events": records, "logs": records, "nextCursor": next_cursor}
 
 
 @app.get("/api/audit/my-logs")
-def my_audit_logs(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+def my_audit_logs(
+    authorization: str | None = Header(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: int | None = Query(default=None, ge=1),
+) -> dict[str, Any]:
     current_user = get_current_user(authorization)
     if use_firestore():
-        records = [
-            event_dict(row) for row in firestore_store().list_audit_events()
-            if row.get("user_id") == current_user["user_id"]
-        ]
-        records.sort(key=lambda row: row["timestamp"], reverse=True)
-        return {"count": len(records), "events": records}
+        stored_records, next_cursor = firestore_store().list_user_audit_events(
+            current_user["user_id"], limit=limit, cursor=cursor
+        )
+        records = [event_dict(row) for row in stored_records]
+        return {"count": len(records), "events": records, "nextCursor": next_cursor}
     connection = connect()
     rows = connection.execute(
-        "SELECT * FROM audit_events WHERE user_id = ? ORDER BY timestamp DESC",
-        (current_user["user_id"],),
+        "SELECT * FROM audit_events WHERE user_id = ? AND (? IS NULL OR event_id < ?) ORDER BY event_id DESC LIMIT ?",
+        (current_user["user_id"], cursor, cursor, limit),
     ).fetchall()
     connection.close()
     records = [event_dict(row) for row in rows]
-    return {"count": len(records), "events": records}
+    next_cursor = records[-1]["eventId"] if len(records) == limit else None
+    return {"count": len(records), "events": records, "nextCursor": next_cursor}
 
 
 @app.get("/api/audit/logs/{event_id}")
@@ -1107,17 +1223,99 @@ def verify_integrity(
             ).call({"from": Web3.to_checksum_address(current_user["wallet_address"])})
         except Exception:
             on_chain_match = False
-    verified = database_match and (on_chain_match is not False)
-    message = "Hash khớp với dữ liệu và blockchain" if verified and on_chain_match else (
-        "Hash khớp với dữ liệu off-chain" if verified else "Phát hiện dữ liệu bị can thiệp: Hash không khớp"
+    balance_match: bool | None = None
+    transaction_match: bool | None = None
+    event = event_dict(row)
+    snapshots = details.get("balanceSnapshots", [])
+    transaction_id = details.get("transactionId")
+    if database_match and event["action"] == "TRANSFER" and transaction_id is not None:
+        try:
+            transaction_id = int(transaction_id)
+            if use_firestore():
+                transaction_record = firestore_store().get_transaction(transaction_id)
+            else:
+                connection = connect()
+                transaction_record = connection.execute(
+                    "SELECT * FROM transactions WHERE transaction_id = ?", (transaction_id,)
+                ).fetchone()
+                connection.close()
+            transaction_match = transaction_record is not None
+            if transaction_record is not None:
+                expected_amount = float(details["amount"])
+                actual_amount = float(transaction_record["amount"])
+                transaction_match = (
+                    int(transaction_record["transaction_id"]) == transaction_id
+                    and math.isclose(actual_amount, expected_amount, rel_tol=1e-9, abs_tol=1e-6)
+                    and transaction_record["to_account"] == event["resource"]
+                    and transaction_record["status"] == event["result"]
+                )
+                if snapshots:
+                    if len(snapshots) != 2:
+                        transaction_match = False
+                    else:
+                        transaction_match = transaction_match and (
+                            transaction_record["from_account"] == snapshots[0]["accountId"]
+                            and transaction_record["to_account"] == snapshots[1]["accountId"]
+                            and math.isclose(
+                                float(snapshots[0]["before"]) - float(snapshots[0]["after"]),
+                                expected_amount, rel_tol=1e-9, abs_tol=1e-6,
+                            )
+                            and math.isclose(
+                                float(snapshots[1]["after"]) - float(snapshots[1]["before"]),
+                                expected_amount, rel_tol=1e-9, abs_tol=1e-6,
+                            )
+                        )
+        except (KeyError, TypeError, ValueError):
+            transaction_match = False
+    if use_firestore() and database_match and snapshots:
+        store = firestore_store()
+        # Older valid events should not fail after later transfers update the accounts.
+        accounts = [store.get_account(str(item["accountId"])) for item in snapshots]
+        if all(
+            account and int(account.get("balance_audit_event_id", -1)) == int(event_id)
+            for account in accounts
+        ):
+            balance_match = True
+            for item, account in zip(snapshots, accounts):
+                expected = float(item["after"])
+                if (
+                    account is None
+                    or float(account.get("balance", 0)) != expected
+                    or float(account.get("audited_balance", -1)) != expected
+                ):
+                    balance_match = False
+                    break
+    verified = (
+        database_match
+        and (on_chain_match is not False)
+        and (balance_match is not False)
+        and (transaction_match is not False)
     )
+    if transaction_match is False:
+        message = "Audit hash matches, but the transaction record differs from its audit event"
+    elif balance_match is False:
+        message = "Audit hash matches, but current balance differs from its verified checkpoint"
+    elif verified and on_chain_match:
+        message = (
+            "Hash, current account balances, and blockchain match"
+            if balance_match else "Hash matches Firestore and blockchain"
+        )
+    elif verified:
+        message = (
+            "Hash and current account balances match; event is off-chain"
+            if balance_match else "Hash matches the off-chain audit data"
+        )
+    else:
+        message = "Audit data was changed: the hash does not match"
     return {
         "verified": verified,
         "message": message,
+        "balanceMatch": balance_match,
+        "transactionMatch": transaction_match,
         "storedHash": row["data_hash"],
         "recalculatedHash": recalculated_hash,
         "onChainVerified": on_chain_match,
-        "event": event_dict(row),
+        "event": event,
     }
 
 

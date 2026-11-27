@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All app reads and writes go through the FastAPI service using Admin SDK.
+    // Firebase Admin bypasses these client rules; API authorization is enforced
+    // by verified Firebase ID tokens and Firestore profile roles.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

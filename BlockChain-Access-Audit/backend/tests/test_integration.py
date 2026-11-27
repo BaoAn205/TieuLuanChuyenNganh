@@ -158,7 +158,7 @@ def test_login_view_transfer_and_audit_log_e2e(client, local_chain, deployed_con
 
     self_transfer = client.post(
         "/api/transactions/transfer",
-        headers=customer_headers,
+        headers={**customer_headers, "Idempotency-Key": "self-transfer-test-key-001"},
         json={"userId": "customer-001", "toAccount": "ACC-1001", "amount": 1000},
     )
     assert self_transfer.status_code == 400
@@ -170,16 +170,48 @@ def test_login_view_transfer_and_audit_log_e2e(client, local_chain, deployed_con
         )
         connection.commit()
 
+    transfer_headers = {
+        **customer_headers,
+        "Idempotency-Key": "customer-transfer-test-key-001",
+    }
+    transfer_payload = {
+        "userId": "customer-001", "toAccount": "ACC-2002", "amount": 125,
+    }
     transfer_response = client.post(
         "/api/transactions/transfer",
-        headers=customer_headers,
-        json={"userId": "customer-001", "toAccount": "ACC-2002", "amount": 125},
+        headers=transfer_headers,
+        json=transfer_payload,
     )
     assert transfer_response.status_code == 200
     transfer_event = transfer_response.json()["audit"]
     assert transfer_event["blockchainTxHash"]
     assert isinstance(transfer_event["blockchainBlockNumber"], int)
     assert isinstance(transfer_event["blockchainLogIndex"], int)
+
+    repeated_transfer = client.post(
+        "/api/transactions/transfer", headers=transfer_headers, json=transfer_payload
+    )
+    assert repeated_transfer.status_code == 200
+    assert repeated_transfer.json()["idempotentReplay"] is True
+    assert repeated_transfer.json()["transaction"]["transactionId"] == transfer_response.json()["transaction"]["transactionId"]
+    assert repeated_transfer.json()["audit"]["eventId"] == transfer_event["eventId"]
+    changed_transfer = client.post(
+        "/api/transactions/transfer",
+        headers=transfer_headers,
+        json={**transfer_payload, "amount": 126},
+    )
+    assert changed_transfer.status_code == 409
+    with main.connect() as connection:
+        assert connection.execute(
+            "SELECT balance FROM accounts WHERE account_id = ?", ("ACC-1001",)
+        ).fetchone()["balance"] == 9875
+        assert connection.execute(
+            "SELECT balance FROM accounts WHERE account_id = ?", ("ACC-2002",)
+        ).fetchone()["balance"] == 125
+        assert connection.execute(
+            "SELECT COUNT(*) FROM transactions WHERE from_account = ? AND to_account = ?",
+            ("ACC-1001", "ACC-2002"),
+        ).fetchone()[0] == 1
 
     canonical = json.dumps(
         {
@@ -280,6 +312,38 @@ def test_login_view_transfer_and_audit_log_e2e(client, local_chain, deployed_con
     assert verified.json()["verified"] is True
     assert verified.json()["onChainVerified"] is True
 
+    transaction_id = transfer_event["details"]["transactionId"]
+    with main.connect() as connection:
+        original_amount = connection.execute(
+            "SELECT amount FROM transactions WHERE transaction_id = ?", (transaction_id,)
+        ).fetchone()["amount"]
+        connection.execute(
+            "UPDATE transactions SET amount = ? WHERE transaction_id = ?",
+            (original_amount + 1, transaction_id),
+        )
+        connection.commit()
+    transaction_tamper = client.post(
+        "/api/verify-integrity",
+        headers=auditor_headers,
+        json={"eventId": transfer_event["eventId"]},
+    )
+    assert transaction_tamper.status_code == 200
+    assert transaction_tamper.json()["verified"] is False
+    assert transaction_tamper.json()["transactionMatch"] is False
+    with main.connect() as connection:
+        connection.execute(
+            "UPDATE transactions SET amount = ? WHERE transaction_id = ?",
+            (original_amount, transaction_id),
+        )
+        connection.commit()
+    restored_transaction = client.post(
+        "/api/verify-integrity",
+        headers=auditor_headers,
+        json={"eventId": transfer_event["eventId"]},
+    )
+    assert restored_transaction.status_code == 200
+    assert restored_transaction.json()["verified"] is True
+
 
 def test_password_hashing_profile_logout_and_session_revocation(client):
     customer = login(client, "customer-001", "customer123")
@@ -358,9 +422,11 @@ def test_login_rejects_wallet_without_required_contract_role(client, local_chain
 
 def test_sqlite_tampering_is_detected_against_chain(client):
     customer = login(client, "customer-001", "customer123")
-    headers = {"Authorization": f"Bearer {customer['sessionToken']}"}
-    client.get("/api/accounts/customer-001", headers=headers)
+    customer_headers = {"Authorization": f"Bearer {customer['sessionToken']}"}
+    client.get("/api/accounts/customer-001", headers=customer_headers)
     event_id = customer["audit"]["eventId"]
+    auditor = login(client, "auditor-001", "audit123")
+    headers = {"Authorization": f"Bearer {auditor['sessionToken']}"}
 
     before = client.post(
         "/api/verify-integrity", headers=headers, json={"eventId": event_id}
@@ -398,7 +464,7 @@ def test_sqlite_tampering_is_detected_against_chain(client):
         assert after.status_code == 200, field
         assert after.json()["verified"] is False, field
         assert after.json()["onChainVerified"] is False, field
-        assert "can thiệp" in after.json()["message"]
+        assert "hash does not match" in after.json()["message"]
 
         with main.connect() as connection:
             connection.execute(

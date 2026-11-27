@@ -3,6 +3,7 @@ const $ = (selector) => document.querySelector(selector);
 let currentUser;
 let recipient;
 let transferPending = false;
+let pendingTransferKey = null;
 let customerAuditEventsList = [];
 let customerAuditCurrentPage = 1;
 let customerAuditPageSize = 5;
@@ -352,7 +353,36 @@ $('#transferForm').addEventListener('submit', async (event) => {
   $('#confirmStatus').textContent = '';
   $('#confirmTransfer').disabled = false;
   $('#confirmTransfer').textContent = 'Confirm and send';
+  const requestFingerprint = JSON.stringify([
+    currentUser.user_id,
+    $('#fromAccountDisplay').textContent,
+    $('#toAccount').value.trim(),
+    amount,
+  ]);
+  const storageKey = `transfer-idempotency:${currentUser.user_id}`;
+  let savedRequest;
+  try {
+    savedRequest = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+  } catch {
+    savedRequest = null;
+  }
+  if (savedRequest?.fingerprint === requestFingerprint && savedRequest.key) {
+    pendingTransferKey = savedRequest.key;
+  } else {
+    const randomKey = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(randomKey);
+    pendingTransferKey = Array.from(randomKey, (value) => value.toString(16).padStart(2, '0')).join('');
+    sessionStorage.setItem(storageKey, JSON.stringify({ fingerprint: requestFingerprint, key: pendingTransferKey }));
+  }
   $('#transferConfirmDialog').showModal();
+});
+
+$('#transferConfirmDialog').addEventListener('cancel', (event) => {
+  if (transferPending) event.preventDefault();
+});
+
+$('#transferConfirmDialog').addEventListener('close', () => {
+  if (!transferPending) pendingTransferKey = null;
 });
 
 $('#confirmTransfer').addEventListener('click', async () => {
@@ -363,6 +393,7 @@ $('#confirmTransfer').addEventListener('click', async () => {
   try {
     const data = await callApi('/api/transactions/transfer', {
       method: 'POST',
+      headers: { 'Idempotency-Key': pendingTransferKey },
       body: JSON.stringify({
         userId: currentUser.user_id,
         toAccount: $('#toAccount').value,
@@ -372,6 +403,8 @@ $('#confirmTransfer').addEventListener('click', async () => {
 
     await refresh();
     $('#transferConfirmDialog').close();
+    pendingTransferKey = null;
+    sessionStorage.removeItem(`transfer-idempotency:${currentUser.user_id}`);
     $('#transferForm').reset();
     $('#toAccount').value = '';
     recipient = null;

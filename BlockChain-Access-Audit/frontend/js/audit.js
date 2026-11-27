@@ -1,5 +1,7 @@
 const API = 'http://127.0.0.1:8000';
 const $ = (selector) => document.querySelector(selector);
+let nextCursor = null;
+let loadedEvents = [];
 
 function walletStatus(message, connected = false) {
 	$('#auditWalletStatus').textContent = message;
@@ -74,19 +76,30 @@ function renderEvents(events) {
 	`).join('') : '<tr><td colspan="10">Không có Audit Event phù hợp.</td></tr>';
 }
 
-async function loadEvents(userRole) {
+async function loadEvents(userRole, append = false) {
 	try {
 		const role = userRole || $('#auditCurrentUserRole').textContent.trim();
+		if (!append) {
+			nextCursor = null;
+			loadedEvents = [];
+		}
+		const page = new URLSearchParams({ limit: '50' });
+		if (append && nextCursor !== null) page.set('cursor', String(nextCursor));
 		let data;
 		if (role === 'CUSTOMER') {
-			data = await callApi('/api/audit/my-logs');
-			status(`Đang hiển thị ${data.count ?? data.events.length} sự kiện kiểm toán của riêng bạn (Customer). Bạn có thể bấm Verify để kiểm tra tính toàn vẹn.`, 'success');
+			data = await callApi(`/api/audit/my-logs?${page}`);
+			status(`Loaded ${data.events.length} of your audit events. Use Verify to check integrity.`, 'success');
 		} else {
-			const query = activeFilters();
-			data = await callApi(`/api/audit/logs${query ? `?${query}` : ''}`);
-			status(`${data.count ?? data.events.length} audit event(s) loaded.`, 'success');
+			const filters = new URLSearchParams(activeFilters());
+			for (const [key, value] of filters) page.set(key, value);
+			data = await callApi(`/api/audit/logs?${page}`);
+			status(`${data.events.length} audit event(s) loaded in this page.`, 'success');
 		}
-		renderEvents(data.events || data.logs || []);
+		const events = data.events || data.logs || [];
+		loadedEvents = append ? [...loadedEvents, ...events] : events;
+		nextCursor = data.nextCursor ?? null;
+		renderEvents(loadedEvents);
+		$('#loadMore').hidden = nextCursor === null;
 	} catch (error) {
 		status(error.message, 'error');
 	}
@@ -153,7 +166,8 @@ $('#clearFilters').addEventListener('click', () => {
 	$('#auditFilters').reset();
 	loadEvents();
 });
-$('#refresh').addEventListener('click', loadEvents);
+$('#refresh').addEventListener('click', () => loadEvents());
+$('#loadMore').addEventListener('click', () => loadEvents(undefined, true));
 
 $('#connectAuditWallet').addEventListener('click', async () => {
 	try {

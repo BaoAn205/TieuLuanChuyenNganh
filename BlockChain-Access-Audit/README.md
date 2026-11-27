@@ -94,6 +94,10 @@ Chọn event demo trong Audit Dashboard, sau đó chạy lệnh dưới đây tr
 
 Verify lại event trong dashboard để xem cảnh báo mismatch. Chỉ dùng với dữ liệu demo.
 
+### 7. Các demo attack an toàn
+
+Xem [Attack demo scenarios](docs/attack-demos.md) để chạy các kịch bản kiểm tra truy cập trái phép, giả mạo giao dịch/replay và can thiệp dữ liệu audit. Chỉ chạy trên Ganache và tài khoản demo; hướng dẫn ghi rõ kết quả mong đợi và cách khôi phục dữ liệu.
+
 ## Tài liệu
 
 - [Kiến trúc hệ thống](docs/architecture.md)

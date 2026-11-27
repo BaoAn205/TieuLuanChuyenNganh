@@ -1,0 +1,73 @@
+[debug] [2026-11-21T08:03:21.508Z] ----------------------------------------------------------------------
+[debug] [2026-11-21T08:03:21.511Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\ginlh\AppData\Local\Temp\codex-npm-cache\_npx\7750544ccf494d8b\node_modules\firebase-tools\lib\bin\firebase.js deploy --only firestore:indexes --project tieuluanchuyennganh-551bf --non-interactive
+[debug] [2026-11-21T08:03:21.512Z] CLI Version:   15.37.0
+[debug] [2026-11-21T08:03:21.512Z] Platform:      win32
+[debug] [2026-11-21T08:03:21.512Z] Node Version:  v22.22.3
+[debug] [2026-11-21T08:03:21.512Z] Detected Agent: codex_cli
+[debug] [2026-11-21T08:03:21.513Z] Time:          Sat Nov 21 2026 15:03:21 GMT+0700 (Indochina Time)
+[debug] [2026-11-21T08:03:21.513Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-11-21T08:03:21.525Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2026-11-21T08:03:23.080Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-11-21T08:03:23.344Z] Running auto auth
+[debug] [2026-11-21T08:03:23.345Z] [iam] checking project tieuluanchuyennganh-551bf for permissions ["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]
+[debug] [2026-11-21T08:03:23.346Z] No OAuth tokens found
+[debug] [2026-11-21T08:03:23.346Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/tieuluanchuyennganh-551bf:testIamPermissions [none]
+[debug] [2026-11-21T08:03:23.346Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/tieuluanchuyennganh-551bf:testIamPermissions  x-goog-user-project=tieuluanchuyennganh-551bf
+[debug] [2026-11-21T08:03:23.346Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/tieuluanchuyennganh-551bf:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[debug] [2026-11-21T08:03:23.635Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-11-21T08:03:23.636Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[debug] [2026-11-21T08:03:24.911Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/tieuluanchuyennganh-551bf:testIamPermissions 200
+[debug] [2026-11-21T08:03:24.911Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/tieuluanchuyennganh-551bf:testIamPermissions {"permissions":["datastore.indexes.list","firebase.projects.get"]}
+[debug] [2026-11-21T08:03:24.911Z] [iam] error while checking permissions, command may fail: Authorization failed. This account is missing the following required permissions on project tieuluanchuyennganh-551bf:
+
+  datastore.indexes.create
+  datastore.indexes.delete
+  datastore.indexes.update
+[info] 
+[info] === Deploying to 'tieuluanchuyennganh-551bf'...
+[info] 
+[info] i  deploying firestore 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2026-11-21T08:03:24.920Z] No OAuth tokens found
+[debug] [2026-11-21T08:03:24.920Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/tieuluanchuyennganh-551bf/services/firestore.googleapis.com [none]
+[debug] [2026-11-21T08:03:24.920Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/tieuluanchuyennganh-551bf/services/firestore.googleapis.com  x-goog-user-project=tieuluanchuyennganh-551bf
+[debug] [2026-11-21T08:03:26.395Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/tieuluanchuyennganh-551bf/services/firestore.googleapis.com 403
+[debug] [2026-11-21T08:03:26.395Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/tieuluanchuyennganh-551bf/services/firestore.googleapis.com [omitted]
+[error] 
+[error] Error: Request to https://serviceusage.googleapis.com/v1/projects/tieuluanchuyennganh-551bf/services/firestore.googleapis.com had HTTP Error: 403, Permission denied to get service [firestore.googleapis.com]
+Help Token: AaVM3aOKkQws8PNVmQa4924xAghu6JNjtSH7o8Kt9bQ8SzSBHaxZd0cNqPhv0rFFHsyGt9gexyjuFYt7gNgxZwutFQ6hJr5ujijB80usdCjxSYlZ
+[debug] [2026-11-21T08:03:26.399Z] Error Context: {
+  "body": {
+    "error": {
+      "code": 403,
+      "message": "Permission denied to get service [firestore.googleapis.com]\nHelp Token: AaVM3aOKkQws8PNVmQa4924xAghu6JNjtSH7o8Kt9bQ8SzSBHaxZd0cNqPhv0rFFHsyGt9gexyjuFYt7gNgxZwutFQ6hJr5ujijB80usdCjxSYlZ",
+      "status": "PERMISSION_DENIED",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.rpc.PreconditionFailure",
+          "violations": [
+            {
+              "type": "googleapis.com",
+              "subject": "?error_code=110002&service=serviceusage.googleapis.com&permission=serviceusage.services.get&error_info_id=CiQwMWExZmQyMS1hZDliLTdjOTYtOTg2Zi1mMGE2ZWU4NGZiMjQSRHByb2plY3RzL3RpZXVsdWFuY2h1eWVubmdhbmgtNTUxYmYvc2VydmljZXMvZmlyZXN0b3JlLmdvb2dsZWFwaXMuY29t&troubleshooter_url=https://console.cloud.google.com/iam-admin/troubleshooter/summary;errorId%3DCiQwMWExZmQyMS1hZDliLTdjOTYtOTg2Zi1mMGE2ZWU4NGZiMjQSRHByb2plY3RzL3RpZXVsdWFuY2h1eWVubmdhbmgtNTUxYmYvc2VydmljZXMvZmlyZXN0b3JlLmdvb2dsZWFwaXMuY29t"
+            }
+          ]
+        },
+        {
+          "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+          "reason": "AUTH_PERMISSION_DENIED",
+          "domain": "serviceusage.googleapis.com",
+          "metadata": {
+            "service": "serviceusage.googleapis.com",
+            "permission": "serviceusage.services.get",
+            "error_info_id": "CiQwMWExZmQyMS1hZDliLTdjOTYtOTg2Zi1mMGE2ZWU4NGZiMjQSRHByb2plY3RzL3RpZXVsdWFuY2h1eWVubmdhbmgtNTUxYmYvc2VydmljZXMvZmlyZXN0b3JlLmdvb2dsZWFwaXMuY29t",
+            "troubleshooter_url": "https://console.cloud.google.com/iam-admin/troubleshooter/summary;errorId=CiQwMWExZmQyMS1hZDliLTdjOTYtOTg2Zi1mMGE2ZWU4NGZiMjQSRHByb2plY3RzL3RpZXVsdWFuY2h1eWVubmdhbmgtNTUxYmYvc2VydmljZXMvZmlyZXN0b3JlLmdvb2dsZWFwaXMuY29t"
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 403
+  }
+}
