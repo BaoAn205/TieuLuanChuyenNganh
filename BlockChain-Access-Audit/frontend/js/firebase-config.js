@@ -7,7 +7,7 @@ export const FIREBASE_CONFIG = {
   appId: "1:684301415007:web:3bbeb061f6f709150ae1ea",
 };
 
-export const API_BASE_URL = "http://127.0.0.1:8000";
-export const EVM_CHAIN_ID = "0x7a69";
-export const EVM_CHAIN_NAME = "Ganache Local";
-export const EVM_RPC_URL = "http://127.0.0.1:8546";
+export const API_BASE_URL = globalThis.BANCOLLECT_CONFIG?.apiBaseUrl || "http://127.0.0.1:8000";
+export const EVM_CHAIN_ID = globalThis.BANCOLLECT_CONFIG?.chainId || "0x7a69";
+export const EVM_CHAIN_NAME = globalThis.BANCOLLECT_CONFIG?.chainName || "Ganache Local";
+export const EVM_RPC_URL = globalThis.BANCOLLECT_CONFIG?.rpcUrl || "http://127.0.0.1:8546";
