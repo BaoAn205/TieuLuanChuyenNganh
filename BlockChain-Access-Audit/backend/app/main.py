@@ -386,6 +386,7 @@ def record_on_blockchain(event: dict[str, Any]) -> dict[str, Any] | None:
         # Simulate first so Solidity revert reasons (for example a duplicate
         # event ID or missing signer role) are visible before spending gas.
         audit_call.call({"from": account.address})
+        estimated_gas = audit_call.estimate_gas({"from": account.address})
     except Exception as error:
         raise HTTPException(
             502, f"Sepolia rejected audit simulation: {str(error)[:400]}"
@@ -398,14 +399,17 @@ def record_on_blockchain(event: dict[str, Any]) -> dict[str, Any] | None:
             "from": account.address,
             "nonce": web3.eth.get_transaction_count(account.address, "pending"),
             "chainId": web3.eth.chain_id,
-            "gas": 500000,
+            "gas": max(50000, estimated_gas * 120 // 100),
             "gasPrice": web3.eth.gas_price,
         })
         signed = account.sign_transaction(transaction)
         transaction_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
     receipt = web3.eth.wait_for_transaction_receipt(transaction_hash)
     if receipt.status != 1:
-        raise HTTPException(502, "Blockchain từ chối Audit Event")
+        raise HTTPException(
+            502,
+            f"Blockchain từ chối Audit Event; tx={transaction_hash.hex()}; gas={receipt.gasUsed}",
+        )
     recorded_logs = contract.events.AuditRecorded().process_receipt(receipt)
     matching_logs = [
         log for log in recorded_logs
