@@ -1,6 +1,8 @@
 (() => {
   let connectedAddress = '';
-  const localChainId = '0x7a69';
+  const chainId = window.APP_CONFIG?.CHAIN_ID || '0x7a69';
+  const chainName = window.APP_CONFIG?.CHAIN_NAME || 'Hardhat Local';
+  const chainRpcUrl = window.APP_CONFIG?.CHAIN_RPC_URL || 'http://127.0.0.1:8546';
 
   async function connect() {
     if (!window.ethereum) {
@@ -10,17 +12,17 @@
     try {
       await window.ethereum.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: localChainId }],
+        params: [{ chainId }],
       });
     } catch (error) {
       if (error.code !== 4902) throw error;
       await window.ethereum.request({
         method: 'wallet_addEthereumChain',
         params: [{
-          chainId: localChainId,
-          chainName: 'Hardhat Local',
+          chainId,
+          chainName,
           nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-          rpcUrls: ['http://127.0.0.1:8546'],
+          rpcUrls: [chainRpcUrl],
         }],
       });
     }

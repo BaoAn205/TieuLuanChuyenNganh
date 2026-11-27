@@ -1,4 +1,4 @@
-const API = 'http://127.0.0.1:8000';
+const API = (window.APP_CONFIG?.API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
 const $ = (selector) => document.querySelector(selector);
 let currentUser;
 let recipient;

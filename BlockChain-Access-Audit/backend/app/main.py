@@ -1323,8 +1323,15 @@ def verify_integrity(
 # error responses. Otherwise browsers hide a server-side 500 as "Failed to fetch".
 app = CORSMiddleware(
     app=app,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5500,http://127.0.0.1:5500,https://tieuluanchuyennganh-551bf.web.app,https://tieuluanchuyennganh-551bf.firebaseapp.com",
+        ).split(",")
+        if origin.strip()
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
