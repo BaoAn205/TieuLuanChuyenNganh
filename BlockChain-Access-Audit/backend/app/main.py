@@ -5,6 +5,7 @@ import math
 import os
 import secrets
 import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ BLOCKCHAIN_ENABLED = os.getenv("BLOCKCHAIN_ENABLED", "false").lower() == "true"
 BLOCKCHAIN_RPC_URL = os.getenv("BLOCKCHAIN_RPC_URL", "http://127.0.0.1:8546")
 BLOCKCHAIN_CONTRACT_ADDRESS = os.getenv("BLOCKCHAIN_CONTRACT_ADDRESS", "")
 BLOCKCHAIN_PRIVATE_KEY = os.getenv("BLOCKCHAIN_PRIVATE_KEY", "")
+BLOCKCHAIN_TX_LOCK = threading.Lock()
 CONTRACT_ABI = [
     {
         "inputs": [{"internalType": "address", "name": "account", "type": "address"}],
@@ -371,23 +373,27 @@ def record_on_blockchain(event: dict[str, Any]) -> dict[str, Any] | None:
         address=Web3.to_checksum_address(BLOCKCHAIN_CONTRACT_ADDRESS),
         abi=CONTRACT_ABI,
     )
-    transaction = contract.functions.recordAudit(
-        event["eventId"],
-        bytes.fromhex(sha256(event["userId"])),
-        event["action"],
-        event["resource"],
-        int(datetime.fromisoformat(event["timestamp"]).timestamp()),
-        event["result"],
-        bytes.fromhex(event["dataHash"]),
-    ).build_transaction({
-        "from": account.address,
-        "nonce": web3.eth.get_transaction_count(account.address),
-        "chainId": web3.eth.chain_id,
-        "gas": 500000,
-        "gasPrice": web3.eth.gas_price,
-    })
-    signed = account.sign_transaction(transaction)
-    transaction_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
+    # Use the pending nonce so an earlier unmined transaction cannot cause a
+    # replacement-underpriced error. The lock prevents concurrent requests in
+    # this Render process from building transactions with the same nonce.
+    with BLOCKCHAIN_TX_LOCK:
+        transaction = contract.functions.recordAudit(
+            event["eventId"],
+            bytes.fromhex(sha256(event["userId"])),
+            event["action"],
+            event["resource"],
+            int(datetime.fromisoformat(event["timestamp"]).timestamp()),
+            event["result"],
+            bytes.fromhex(event["dataHash"]),
+        ).build_transaction({
+            "from": account.address,
+            "nonce": web3.eth.get_transaction_count(account.address, "pending"),
+            "chainId": web3.eth.chain_id,
+            "gas": 500000,
+            "gasPrice": web3.eth.gas_price,
+        })
+        signed = account.sign_transaction(transaction)
+        transaction_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
     receipt = web3.eth.wait_for_transaction_receipt(transaction_hash)
     if receipt.status != 1:
         raise HTTPException(502, "Blockchain từ chối Audit Event")
@@ -722,18 +728,19 @@ def create_customer(
         if contract.functions.getRole(account.address).call() != ROLE_IDS["ADMIN"]:
             raise HTTPException(503, "BLOCKCHAIN_PRIVATE_KEY must belong to an ADMIN wallet on this contract")
         try:
-            tx = contract.functions.grantRole(
-                Web3.to_checksum_address(wallet_address), ROLE_IDS["CUSTOMER"],
-                bytes.fromhex(sha256(user_id)),
-            ).build_transaction({
-                "from": account.address,
-                "nonce": web3.eth.get_transaction_count(account.address),
-                "chainId": web3.eth.chain_id,
-                "gas": 200000,
-                "gasPrice": web3.eth.gas_price,
-            })
-            signed = account.sign_transaction(tx)
-            tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
+            with BLOCKCHAIN_TX_LOCK:
+                tx = contract.functions.grantRole(
+                    Web3.to_checksum_address(wallet_address), ROLE_IDS["CUSTOMER"],
+                    bytes.fromhex(sha256(user_id)),
+                ).build_transaction({
+                    "from": account.address,
+                    "nonce": web3.eth.get_transaction_count(account.address, "pending"),
+                    "chainId": web3.eth.chain_id,
+                    "gas": 200000,
+                    "gasPrice": web3.eth.gas_price,
+                })
+                signed = account.sign_transaction(tx)
+                tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
             receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
             if receipt.status != 1:
                 raise HTTPException(502, "Blockchain rejected customer role assignment")
