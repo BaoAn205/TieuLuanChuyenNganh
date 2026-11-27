@@ -373,19 +373,28 @@ def record_on_blockchain(event: dict[str, Any]) -> dict[str, Any] | None:
         address=Web3.to_checksum_address(BLOCKCHAIN_CONTRACT_ADDRESS),
         abi=CONTRACT_ABI,
     )
+    audit_call = contract.functions.recordAudit(
+        event["eventId"],
+        bytes.fromhex(sha256(event["userId"])),
+        event["action"],
+        event["resource"],
+        int(datetime.fromisoformat(event["timestamp"]).timestamp()),
+        event["result"],
+        bytes.fromhex(event["dataHash"]),
+    )
+    try:
+        # Simulate first so Solidity revert reasons (for example a duplicate
+        # event ID or missing signer role) are visible before spending gas.
+        audit_call.call({"from": account.address})
+    except Exception as error:
+        raise HTTPException(
+            502, f"Sepolia rejected audit simulation: {str(error)[:400]}"
+        ) from error
     # Use the pending nonce so an earlier unmined transaction cannot cause a
     # replacement-underpriced error. The lock prevents concurrent requests in
     # this Render process from building transactions with the same nonce.
     with BLOCKCHAIN_TX_LOCK:
-        transaction = contract.functions.recordAudit(
-            event["eventId"],
-            bytes.fromhex(sha256(event["userId"])),
-            event["action"],
-            event["resource"],
-            int(datetime.fromisoformat(event["timestamp"]).timestamp()),
-            event["result"],
-            bytes.fromhex(event["dataHash"]),
-        ).build_transaction({
+        transaction = audit_call.build_transaction({
             "from": account.address,
             "nonce": web3.eth.get_transaction_count(account.address, "pending"),
             "chainId": web3.eth.chain_id,
